@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { GenerationJobStatus, TaskStatus } from "@prisma/client";
 import { Observable } from "rxjs";
 import { MessageEvent } from "@nestjs/common";
@@ -69,76 +69,91 @@ export class BriefsService {
    * Streams a text draft to the client over SSE while logging a
    * GenerationJob for cost accounting -- see design doc §4.1: "Text can
    * stream directly for UX, but is still logged as a job for cost
-   * accounting." Everything before the returned Observable (lookup, credit
-   * reserve) runs synchronously so a 404/402 surfaces as a normal HTTP
-   * error, not a broken SSE stream.
+   * accounting."
+   *
+   * Returns the Observable synchronously and does ALL async work (brief
+   * lookup, credit reserve, the model call itself) inside its subscribe
+   * callback -- deliberately, not as an async controller method that
+   * `throw`s for a 404/402. Nest's @Sse() commits the response as
+   * `200 text/event-stream` as soon as the route is invoked, before the
+   * handler's promise settles, so an exception thrown before returning the
+   * Observable does NOT reach the client as a real HTTP error status (it
+   * was observed silently becoming `200` with an empty body -- caught by
+   * test/briefs.e2e-spec.ts). So every failure mode here -- not found,
+   * insufficient credit, mid-stream provider failure -- is reported the
+   * same way: an `event: error` SSE message. Callers must not expect a
+   * 404/402 from this endpoint; they must inspect the SSE event stream.
    */
-  async generateStream(briefId: string, user: AuthenticatedUser): Promise<Observable<MessageEvent>> {
-    const brief = await this.findOne(briefId);
-    const task = await this.prisma.client.task.findFirst({ where: { briefId: brief.id } });
-    if (!task) throw new NotFoundException("Brief has no task to generate a draft for");
-
-    // Priced against the primary provider -- a safe upper bound even if the
-    // request ends up served by a cheaper fallback provider.
-    const estimatedMicros = this.creditLedger.estimateCostMicros(
-      this.modelRouter.primaryModel,
-      brief.instructions,
-      GENERATION_MAX_TOKENS,
-    );
-
-    const job = await this.prisma.client.generationJob.create({
-      data: {
-        organizationId: user.tenantId,
-        taskId: task.id,
-        createdById: user.userId,
-        model: this.modelRouter.primaryModel,
-        estimatedCostMicros: estimatedMicros,
-      },
-    });
-
-    const reserved = await this.creditLedger.reserve(user.tenantId, job.id, estimatedMicros);
-    if (!reserved.ok) {
-      await this.prisma.client.generationJob.update({
-        where: { id: job.id },
-        data: { status: GenerationJobStatus.FAILED, errorMessage: "insufficient_credit" },
-      });
-      throw new HttpException(
-        `Insufficient credit balance (have ${reserved.balanceMicros}, need ${reserved.requestedMicros} micros)`,
-        HttpStatus.PAYMENT_REQUIRED,
-      );
-    }
-
-    await this.prisma.client.generationJob.update({
-      where: { id: job.id },
-      data: { status: GenerationJobStatus.PROCESSING },
-    });
-
+  generateStream(briefId: string, user: AuthenticatedUser): Observable<MessageEvent> {
     return new Observable<MessageEvent>((subscriber) => {
-      void this.runGeneration(subscriber, {
-        brief,
-        taskId: task.id,
-        jobId: job.id,
-        ledgerEntryId: reserved.ledgerEntryId,
-        user,
-      });
+      void this.runGeneration(subscriber, briefId, user);
     });
   }
 
+  /**
+   * One flat try/catch covering the whole flow, deliberately not split
+   * across nested helpers -- an earlier version split "reserve credit" and
+   * "stream from the model" into two functions with a rethrow between them,
+   * which left a real gap: if reserve() itself threw (not its normal
+   * `{ok:false}` return, but an actual exception) the rethrow escaped
+   * `void this.runGeneration(...)` as an unhandled rejection, and the SSE
+   * connection just hung with no error event and no cleanup. Cleanup here
+   * is conditional on how far execution got (jobId / ledgerEntryId set),
+   * not on which sub-step failed.
+   */
   private async runGeneration(
     subscriber: import("rxjs").Subscriber<MessageEvent>,
-    ctx: {
-      brief: { id: string; instructions: string };
-      taskId: string;
-      jobId: string;
-      ledgerEntryId: string;
-      user: AuthenticatedUser;
-    },
+    briefId: string,
+    user: AuthenticatedUser,
   ) {
+    let jobId: string | undefined;
+    let ledgerEntryId: string | undefined;
     let fullText = "";
+
     try {
+      const brief = await this.findOne(briefId);
+      const task = await this.prisma.client.task.findFirst({ where: { briefId: brief.id } });
+      if (!task) throw new NotFoundException("Brief has no task to generate a draft for");
+
+      // Priced against the primary provider -- a safe upper bound even if
+      // the request ends up served by a cheaper fallback provider.
+      const estimatedMicros = this.creditLedger.estimateCostMicros(
+        this.modelRouter.primaryModel,
+        brief.instructions,
+        GENERATION_MAX_TOKENS,
+      );
+
+      const job = await this.prisma.client.generationJob.create({
+        data: {
+          organizationId: user.tenantId,
+          taskId: task.id,
+          createdById: user.userId,
+          model: this.modelRouter.primaryModel,
+          estimatedCostMicros: estimatedMicros,
+        },
+      });
+      jobId = job.id;
+
+      const reserved = await this.creditLedger.reserve(user.tenantId, job.id, estimatedMicros);
+      if (!reserved.ok) {
+        await this.prisma.client.generationJob.update({
+          where: { id: job.id },
+          data: { status: GenerationJobStatus.FAILED, errorMessage: "insufficient_credit" },
+        });
+        subscriber.next({ type: "error", data: "Insufficient credit balance." });
+        subscriber.complete();
+        return;
+      }
+      ledgerEntryId = reserved.ledgerEntryId;
+
+      await this.prisma.client.generationJob.update({
+        where: { id: job.id },
+        data: { status: GenerationJobStatus.PROCESSING },
+      });
+
       const stream = this.modelRouter.generate({
         systemPrompt: SYSTEM_PROMPT,
-        prompt: ctx.brief.instructions,
+        prompt: brief.instructions,
         maxTokens: GENERATION_MAX_TOKENS,
       });
 
@@ -148,24 +163,20 @@ export class BriefsService {
       }
 
       const usage = await stream.usage();
-      const actualMicros = this.creditLedger.actualCostMicros(
-        usage.model,
-        usage.inputTokens,
-        usage.outputTokens,
-      );
+      const actualMicros = this.creditLedger.actualCostMicros(usage.model, usage.inputTokens, usage.outputTokens);
 
-      const version = await this.nextAssetVersion(ctx.taskId);
+      const version = await this.nextAssetVersion(task.id);
       await this.prisma.client.asset.create({
         data: {
-          organizationId: ctx.user.tenantId,
-          taskId: ctx.taskId,
+          organizationId: user.tenantId,
+          taskId: task.id,
           content: fullText,
           version,
-          createdById: ctx.user.userId,
+          createdById: user.userId,
         },
       });
       await this.prisma.client.generationJob.update({
-        where: { id: ctx.jobId },
+        where: { id: job.id },
         data: {
           status: GenerationJobStatus.COMPLETED,
           // Corrected to whichever provider actually served the request --
@@ -177,25 +188,30 @@ export class BriefsService {
           actualCostMicros: actualMicros,
         },
       });
-      await this.creditLedger.settle(ctx.ledgerEntryId, actualMicros);
+      await this.creditLedger.settle(user.tenantId, ledgerEntryId, actualMicros);
       await this.prisma.client.task.update({
-        where: { id: ctx.taskId },
+        where: { id: task.id },
         data: { status: TaskStatus.IN_REVIEW },
       });
 
       subscriber.next({ type: "done", data: { version } });
       subscriber.complete();
     } catch (err) {
-      await this.creditLedger.release(ctx.ledgerEntryId);
-      await this.prisma.client.generationJob
-        .update({
-          where: { id: ctx.jobId },
-          data: { status: GenerationJobStatus.FAILED, errorMessage: String(err) },
-        })
-        .catch(() => {
-          // Best-effort -- don't let a logging failure mask the original error below.
+      if (ledgerEntryId) {
+        await this.creditLedger.release(user.tenantId, ledgerEntryId).catch(() => {
+          // Best-effort -- don't let a cleanup failure mask the original error below.
         });
-
+      }
+      if (jobId) {
+        await this.prisma.client.generationJob
+          .update({
+            where: { id: jobId },
+            data: { status: GenerationJobStatus.FAILED, errorMessage: String(err) },
+          })
+          .catch(() => {
+            // Best-effort -- same reasoning as above.
+          });
+      }
       subscriber.next({ type: "error", data: "Generation failed. Please try again." });
       subscriber.complete();
     }

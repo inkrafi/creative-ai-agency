@@ -29,10 +29,7 @@ export class BriefsController {
 
   @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR)
   @Sse(":id/generate")
-  generate(
-    @Param("id") id: string,
-    @CurrentUser() user: AuthenticatedUser,
-  ): Promise<Observable<MessageEvent>> {
+  generate(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser): Observable<MessageEvent> {
     return this.briefsService.generateStream(id, user);
   }
 }

@@ -59,6 +59,18 @@ for cost accounting."*
 - `apps/api/src/ai/model-pricing.ts` — per-token pricing table, source of
   the cost math (fetched from live provider docs, not memorized).
 
+**Every failure from `/briefs/:id/generate` is an SSE `event: error`, never
+an HTTP error status.** Nest's `@Sse()` commits the response as
+`200 text/event-stream` as soon as the route is invoked, before the handler
+resolves -- an `HttpException` thrown before returning the `Observable`
+does *not* reach the client as a real 402/404 (confirmed by
+`test/briefs.e2e-spec.ts`, which caught this returning a bare `200` with an
+empty body). So `BriefsService.generateStream()` never throws outward; it
+does all its work inside the `Observable`'s subscribe callback and reports
+every failure -- not found, insufficient credit, mid-stream provider
+failure -- the same way. Clients must listen for `error` vs `done` SSE
+events, not branch on HTTP status.
+
 **A note on the Gemini integration**: its Node SDK (`@google/genai`) changed
 its streaming event-type names between major versions while this was being
 built (`content.delta`/`interaction.complete` on 1.x vs
@@ -110,17 +122,46 @@ curl -N localhost:3000/briefs/<briefId>/generate -H "Authorization: Bearer <acce
 ## Tests
 
 ```bash
-pnpm --filter api test:e2e
+pnpm --filter api test       # unit tests -- no DB, no network
+pnpm --filter api test:e2e   # integration/e2e -- needs the running Postgres
 ```
 
-Runs the raw-SQL RLS proof (`tenant-isolation.e2e-spec.ts`) and the
-black-box HTTP cross-tenant test (`auth-flow.e2e-spec.ts`). Also runs in CI
-on every push (`.github/workflows/ci.yml`) against a real Postgres service
-container — this is the "automated isolation tests in CI" mitigation named
-in the design doc's risk table. (No automated test yet for the AI
-generation path itself -- it wasn't practical to run against the real
-Anthropic/Gemini APIs in CI without incurring cost; verified manually
-end-to-end instead.)
+Both run in CI on every push (`.github/workflows/ci.yml`) against a real
+Postgres service container — no `ANTHROPIC_API_KEY`/`GEMINI_API_KEY` needed
+there, see below.
+
+- `src/ai/model-router.service.spec.ts` (unit) — the fallback-chain logic
+  (pre-stream quota failure switches provider; mid-stream failure and
+  non-quota errors don't), using fake `AiProvider` implementations. No real
+  API calls.
+- `test/tenant-isolation.e2e-spec.ts` — raw-SQL proof that RLS blocks
+  cross-tenant access at the DB layer, not just in app code. This is the
+  "automated isolation tests in CI" mitigation named in the design doc's
+  risk table.
+- `test/auth-flow.e2e-spec.ts` — black-box HTTP cross-tenant test for
+  projects.
+- `test/credit-ledger.e2e-spec.ts` (integration, real Postgres) — reserve/
+  settle/release correctness, plus firing two concurrent `reserve()` calls
+  at a balance that can't cover both to prove the `Serializable` isolation
+  actually prevents a double-spend (a plain `READ COMMITTED`
+  check-then-insert would let both through).
+- `test/briefs.e2e-spec.ts` — full HTTP flow (tenant isolation for briefs,
+  successful generation's side effects, insufficient credit, mid-stream
+  failure) with `ModelRouterService` swapped for a fake via
+  `.overrideProvider()` — no real Anthropic/Gemini calls, no cost, and it
+  still exercises the real controller/guard/RLS/ledger path.
+
+**No API keys needed to run any of this.** `AnthropicProvider` and
+`GeminiProvider` still get constructed by Nest's DI container in these
+tests (only `ModelRouterService` itself is swapped), but both SDKs
+construct lazily without throwing when no key is present — confirmed by
+running the full e2e suite with `ANTHROPIC_API_KEY`/`GEMINI_API_KEY` unset
+before trusting CI not to need them as secrets.
+
+The one thing intentionally *not* covered by an automated test: an actual
+network call to Anthropic or Gemini succeeding. That was verified manually,
+end-to-end, against the real APIs (see git history) — not practical to run
+on every CI push without incurring real cost.
 
 ## What's deliberately not here yet
 

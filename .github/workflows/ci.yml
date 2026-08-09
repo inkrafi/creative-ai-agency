@@ -47,5 +47,8 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter api prisma:generate
 
-      - name: Run isolation + auth e2e tests
+      - name: Run unit tests
+        run: pnpm --filter api test
+
+      - name: Run e2e tests (isolation, auth, credit ledger, briefs/generation)
         run: pnpm --filter api test:e2e

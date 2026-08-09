@@ -87,19 +87,31 @@ export class CreditLedgerService {
     throw new Error("unreachable");
   }
 
-  /** Corrects a hold to the real cost once usage is known. */
-  async settle(ledgerEntryId: string, actualMicros: number): Promise<void> {
-    await this.prisma.client.creditLedgerEntry.update({
-      where: { id: ledgerEntryId },
-      data: { amountMicros: -actualMicros, status: LedgerEntryStatus.SETTLED, reason: "generation_settled" },
-    });
+  /**
+   * Corrects a hold to the real cost once usage is known. Takes
+   * `organizationId` explicitly (via runAsTenant) rather than relying on
+   * ambient CLS tenant context like prisma.client does -- settle()/release()
+   * can be called from contexts with no HTTP request in flight (tests,
+   * potentially a future retry job), and prisma.client fails RLS closed
+   * with no context set, which silently updates zero rows rather than
+   * throwing. Found by credit-ledger.e2e-spec.ts calling these directly.
+   */
+  async settle(organizationId: string, ledgerEntryId: string, actualMicros: number): Promise<void> {
+    await this.prisma.runAsTenant(organizationId, (tx) =>
+      tx.creditLedgerEntry.update({
+        where: { id: ledgerEntryId },
+        data: { amountMicros: -actualMicros, status: LedgerEntryStatus.SETTLED, reason: "generation_settled" },
+      }),
+    );
   }
 
   /** Releases a hold when generation fails -- the tenant isn't charged for it. */
-  async release(ledgerEntryId: string): Promise<void> {
-    await this.prisma.client.creditLedgerEntry.update({
-      where: { id: ledgerEntryId },
-      data: { amountMicros: 0, status: LedgerEntryStatus.SETTLED, reason: "generation_failed_released" },
-    });
+  async release(organizationId: string, ledgerEntryId: string): Promise<void> {
+    await this.prisma.runAsTenant(organizationId, (tx) =>
+      tx.creditLedgerEntry.update({
+        where: { id: ledgerEntryId },
+        data: { amountMicros: 0, status: LedgerEntryStatus.SETTLED, reason: "generation_failed_released" },
+      }),
+    );
   }
 }

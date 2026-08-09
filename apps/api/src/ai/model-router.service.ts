@@ -1,15 +1,19 @@
-import { Injectable } from "@nestjs/common";
-import { AnthropicProvider } from "./providers/anthropic.provider";
-import { GeminiProvider } from "./providers/gemini.provider";
+import { Inject, Injectable } from "@nestjs/common";
 import { AiProvider } from "./providers/ai-provider.interface";
+import { AI_PROVIDERS } from "./providers/ai-providers.token";
 import { GenerationRequest, GenerationStream, GenerationUsage } from "./model-router.types";
 
 /**
  * Thin abstraction over the LLM provider(s). Callers (BriefsService) never
  * import @anthropic-ai/sdk or @google/genai directly -- adding, removing,
- * or reordering providers only touches this file. See design doc §7 (risk
- * mitigations): "Model Router abstraction from day one" and "Model Router
- * with fallback chain across providers."
+ * or reordering providers only touches AiModule's AI_PROVIDERS factory. See
+ * design doc §7 (risk mitigations): "Model Router abstraction from day one"
+ * and "Model Router with fallback chain across providers."
+ *
+ * Depends on the AiProvider *interface* (injected via AI_PROVIDERS), not
+ * the concrete Anthropic/Gemini classes -- that's what lets
+ * model-router.service.spec.ts test the fallback logic with fake providers
+ * instead of hitting real, billable APIs.
  *
  * Fallback only kicks in when a provider's quota/credit is exhausted
  * BEFORE it has streamed any text -- once a provider has started streaming
@@ -18,11 +22,7 @@ import { GenerationRequest, GenerationStream, GenerationUsage } from "./model-ro
  */
 @Injectable()
 export class ModelRouterService {
-  private readonly providers: AiProvider[];
-
-  constructor(anthropic: AnthropicProvider, gemini: GeminiProvider) {
-    this.providers = gemini.isConfigured ? [anthropic, gemini] : [anthropic];
-  }
+  constructor(@Inject(AI_PROVIDERS) private readonly providers: AiProvider[]) {}
 
   /** Used to price the pre-flight credit estimate against; see CreditLedgerService. */
   get primaryModel(): string {
