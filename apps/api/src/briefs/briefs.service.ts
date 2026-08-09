@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { GenerationJobStatus, TaskStatus } from "@prisma/client";
+import { GenerationJobStatus, Prisma, TaskStatus } from "@prisma/client";
 import { Observable } from "rxjs";
 import { MessageEvent } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
@@ -7,12 +7,9 @@ import { ModelRouterService } from "../ai/model-router.service";
 import { CreditLedgerService } from "../generation/credit-ledger.service";
 import { AuthenticatedUser } from "../common/decorators/current-user.decorator";
 import { CreateBriefDto } from "./dto/create-brief.dto";
+import { BRIEF_SYSTEM_PROMPTS, formatBriefPrompt, validateBriefContext } from "./brief-context";
 
 const GENERATION_MAX_TOKENS = 2048;
-const SYSTEM_PROMPT =
-  "You are a copywriter working inside a creative agency's tools. Write the " +
-  "requested draft content directly. No preamble, no meta-commentary about " +
-  "what you're about to write, no markdown headers unless the brief asks for them.";
 
 @Injectable()
 export class BriefsService {
@@ -29,13 +26,22 @@ export class BriefsService {
    * -> Task -> Asset(versions).
    */
   async create(user: AuthenticatedUser, dto: CreateBriefDto) {
+    validateBriefContext(dto.type, dto.context);
+    const instructions = formatBriefPrompt(dto.type, dto.context);
+
     return this.prisma.runAsTenant(user.tenantId, async (tx) => {
       const brief = await tx.brief.create({
         data: {
           organizationId: user.tenantId,
           projectId: dto.projectId,
           title: dto.title,
-          instructions: dto.instructions,
+          type: dto.type,
+          // dto.context is already validated JSON-object shape (@IsObject()
+          // + validateBriefContext() above); Prisma's InputJsonValue type
+          // just needs the cast since it doesn't accept a plain
+          // Record<string, unknown> structurally.
+          context: dto.context as Prisma.InputJsonValue,
+          instructions,
           createdById: user.userId,
         },
       });
@@ -152,7 +158,7 @@ export class BriefsService {
       });
 
       const stream = this.modelRouter.generate({
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: BRIEF_SYSTEM_PROMPTS[brief.type],
         prompt: brief.instructions,
         maxTokens: GENERATION_MAX_TOKENS,
       });

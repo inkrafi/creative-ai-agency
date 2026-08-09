@@ -46,6 +46,11 @@ enum LedgerEntryStatus {
   SETTLED
 }
 
+enum BriefType {
+  WEBSITE
+  DESIGN
+}
+
 /// A tenant. Every other tenant-scoped table carries an organization_id
 /// column that Postgres RLS policies filter on (see migrations/0002_rls_policies).
 model Organization {
@@ -97,15 +102,25 @@ model Project {
 /// A generation request: "draft this content". Groups one or more Tasks —
 /// matches the design doc's Organization -> Project -> Brief -> Task ->
 /// Asset(versions) data shape.
+///
+/// `type` + `context` replace a single free-text instructions field so the
+/// intake actually captures client discovery info (business type, pain
+/// points, goals, ...) instead of whatever the user happens to type --
+/// see the WEBSITE/DESIGN field shapes in briefs/brief-context.ts.
+/// `instructions` is now server-computed (formatted from type+context at
+/// create time, not client-supplied) and kept so the exact prompt sent to
+/// the model is on record even if the formatting logic changes later.
 model Brief {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  projectId      String   @map("project_id") @db.Uuid
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  projectId      String    @map("project_id") @db.Uuid
   title          String
+  type           BriefType
+  context        Json
   instructions   String
-  createdById    String   @map("created_by_id") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdById    String    @map("created_by_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   project Project @relation(fields: [projectId], references: [id])
   tasks   Task[]

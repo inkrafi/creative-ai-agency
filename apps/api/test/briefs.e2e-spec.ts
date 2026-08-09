@@ -108,7 +108,17 @@ describe("Briefs + generation (e2e)", () => {
     const brief = await request(app.getHttpServer())
       .post("/briefs")
       .set("Authorization", `Bearer ${token}`)
-      .send({ projectId: project.body.id, title: "Ad copy", instructions: "Write something." })
+      .send({
+        projectId: project.body.id,
+        title: "Company site",
+        type: "WEBSITE",
+        context: {
+          businessType: "Local bakery",
+          targetAudience: "Neighborhood families",
+          painPoints: "No online presence, customers can't find hours or menu",
+          goals: "Simple site with menu and location",
+        },
+      })
       .expect(201);
 
     return brief.body as { id: string; taskId: string };
@@ -229,5 +239,68 @@ describe("Briefs + generation (e2e)", () => {
     );
     expect(ledgerEntry.amountMicros).toBe(0);
     expect(ledgerEntry.status).toBe("SETTLED");
+  });
+
+  it("rejects a WEBSITE brief missing required context fields with 400", async () => {
+    const { token } = await signup();
+    const project = await request(app.getHttpServer())
+      .post("/projects")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Test project" })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .post("/briefs")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        projectId: project.body.id,
+        title: "Incomplete brief",
+        type: "WEBSITE",
+        context: { businessType: "Bakery" }, // missing targetAudience/painPoints/goals
+      })
+      .expect(400);
+
+    expect(res.body.message).toMatch(/targetAudience/);
+    expect(fakeRouter.generate).not.toHaveBeenCalled();
+  });
+
+  it("creates and generates a DESIGN brief using its own field set", async () => {
+    const { token, organizationId } = await signup();
+    await grantCredit(organizationId, 100_000_000);
+    const project = await request(app.getHttpServer())
+      .post("/projects")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Test project" })
+      .expect(201);
+
+    const brief = await request(app.getHttpServer())
+      .post("/briefs")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        projectId: project.body.id,
+        title: "Ramadan promo poster",
+        type: "DESIGN",
+        context: {
+          designType: "Poster",
+          purpose: "Ramadan sale promotion",
+          keyMessage: "30% off all pastries during Ramadan",
+        },
+      })
+      .expect(201);
+
+    fakeRouter.deltas = ["Warm, festive mood."];
+    await request(app.getHttpServer())
+      .get(`/briefs/${brief.body.id}/generate`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    const stored = await prisma.runAsTenant(organizationId, (tx) =>
+      tx.brief.findUniqueOrThrow({ where: { id: brief.body.id } }),
+    );
+    expect(stored.type).toBe("DESIGN");
+    // The DESIGN system prompt must make it explicit that Phase 1 output is
+    // a written creative direction, not an actual generated image -- easy
+    // for a design-type brief to imply otherwise if this regresses.
+    expect(fakeRouter.generate.mock.calls[0][0].systemPrompt).toMatch(/NOT generating an image/);
   });
 });

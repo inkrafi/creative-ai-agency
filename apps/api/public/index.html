@@ -189,9 +189,16 @@
 
       <form onsubmit="return handleCreateBrief(event)" id="brief-form" class="hidden">
         <label>Judul</label>
-        <input id="new-brief-title" placeholder="Contoh: Copy iklan skincare" required />
-        <label>Instruksi untuk AI</label>
-        <textarea id="new-brief-instructions" placeholder="Contoh: Tulis 2 kalimat iklan playful untuk serum skincare, target milenial." required></textarea>
+        <input id="new-brief-title" placeholder="Contoh: Company profile bakery" required />
+
+        <label>Tipe Brief</label>
+        <select id="new-brief-type" onchange="renderBriefTypeFields()">
+          <option value="WEBSITE">Website</option>
+          <option value="DESIGN">Desain (poster, banner, dll)</option>
+        </select>
+
+        <div id="brief-type-fields"></div>
+
         <button type="submit">Buat Brief</button>
       </form>
 
@@ -355,10 +362,10 @@ function renderBriefs() {
       (b) => `
     <div class="brief-item" id="brief-${b.id}">
       <div class="top">
-        <strong>${escapeHtml(b.title)}</strong>
+        <strong>${escapeHtml(b.title)} <span class="pill">${b.type}</span></strong>
         <button onclick="generate('${b.id}')" id="gen-btn-${b.id}">Generate</button>
       </div>
-      <div class="muted" style="margin-top:0.3rem;">${escapeHtml(b.instructions)}</div>
+      <div class="muted" style="margin-top:0.3rem; white-space:pre-line;">${escapeHtml(b.instructions)}</div>
       <div class="output" id="output-${b.id}"></div>
       <div class="status" id="status-${b.id}"></div>
     </div>`,
@@ -366,21 +373,76 @@ function renderBriefs() {
     .join("");
 }
 
+// Field sets mirror src/briefs/brief-context.ts (WebsiteBriefContext /
+// DesignBriefContext + their required fields) -- keep these in sync if
+// that file changes.
+const BRIEF_TYPE_FIELDS = {
+  WEBSITE: [
+    { id: "businessType", label: "Bidang usaha", required: true, placeholder: "Contoh: Toko roti lokal" },
+    { id: "targetAudience", label: "Target audiens", required: true, placeholder: "Contoh: Keluarga di sekitar toko" },
+    {
+      id: "painPoints",
+      label: "Masalah yang ingin diselesaikan",
+      required: true,
+      textarea: true,
+      placeholder: "Contoh: Belum ada info online, pelanggan tidak tahu jam buka/menu",
+    },
+    { id: "goals", label: "Tujuan website", required: true, placeholder: "Contoh: Web sederhana dengan menu dan lokasi" },
+    { id: "pagesNeeded", label: "Halaman yang diinginkan (opsional)", required: false, placeholder: "Contoh: Home, Menu, Tentang, Kontak" },
+    { id: "toneStyle", label: "Gaya/tone (opsional)", required: false, placeholder: "Contoh: Hangat dan ramah" },
+  ],
+  DESIGN: [
+    { id: "designType", label: "Jenis desain", required: true, placeholder: "Contoh: Poster, banner, logo" },
+    { id: "purpose", label: "Tujuan", required: true, placeholder: "Contoh: Promosi diskon Ramadan" },
+    {
+      id: "keyMessage",
+      label: "Pesan utama",
+      required: true,
+      textarea: true,
+      placeholder: "Contoh: Diskon 30% semua kue selama Ramadan",
+    },
+    { id: "dimensions", label: "Ukuran/format (opsional)", required: false, placeholder: "Contoh: A3, atau 1080x1080 untuk IG" },
+    { id: "styleMood", label: "Gaya/mood visual (opsional)", required: false, placeholder: "Contoh: Ceria, warna cerah" },
+    { id: "textToInclude", label: "Teks wajib yang harus ada (opsional)", required: false, placeholder: "Contoh: Nama toko, tanggal promo" },
+  ],
+};
+
+function renderBriefTypeFields() {
+  const type = document.getElementById("new-brief-type").value;
+  const container = document.getElementById("brief-type-fields");
+  container.innerHTML = BRIEF_TYPE_FIELDS[type]
+    .map(
+      (f) => `
+      <label>${f.label}${f.required ? " *" : ""}</label>
+      ${
+        f.textarea
+          ? `<textarea id="brief-field-${f.id}" placeholder="${f.placeholder}" ${f.required ? "required" : ""}></textarea>`
+          : `<input id="brief-field-${f.id}" placeholder="${f.placeholder}" ${f.required ? "required" : ""} />`
+      }`,
+    )
+    .join("");
+  if (type === "DESIGN") {
+    container.innerHTML +=
+      '<p class="muted">Catatan: hasil AI untuk tipe Desain saat ini masih berupa teks (arah kreatif tertulis) — belum gambar sungguhan. Generate gambar asli menyusul di fase berikutnya.</p>';
+  }
+}
+
 async function handleCreateBrief(evt) {
   evt.preventDefault();
   const titleEl = document.getElementById("new-brief-title");
-  const instrEl = document.getElementById("new-brief-instructions");
+  const type = document.getElementById("new-brief-type").value;
+  const context = {};
+  for (const f of BRIEF_TYPE_FIELDS[type]) {
+    const el = document.getElementById(`brief-field-${f.id}`);
+    if (el && el.value.trim()) context[f.id] = el.value.trim();
+  }
   try {
     await api("/briefs", {
       method: "POST",
-      body: JSON.stringify({
-        projectId: state.selectedProjectId,
-        title: titleEl.value,
-        instructions: instrEl.value,
-      }),
+      body: JSON.stringify({ projectId: state.selectedProjectId, title: titleEl.value, type, context }),
     });
     titleEl.value = "";
-    instrEl.value = "";
+    renderBriefTypeFields();
     await loadBriefs();
   } catch (err) {
     showError("Gagal bikin brief: " + err.message);
@@ -456,6 +518,8 @@ function escapeHtml(str) {
   div.textContent = str;
   return div.innerHTML;
 }
+
+renderBriefTypeFields(); // populate the default (WEBSITE) fields before any project is selected
 
 // Resume session if a token is already stored (page refresh).
 if (state.token) {
