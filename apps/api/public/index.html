@@ -375,9 +375,13 @@ function renderTaskRowContents(task) {
     return `${statusPill} <button class="ghost" onclick="submitForReview('${task.id}', '${task.briefId}')">Submit untuk Review</button>`;
   }
   if (task.status === "IN_REVIEW") {
+    // Labeled "Klien ..." on purpose -- these buttons record the client's
+    // decision (relayed to staff out-of-band, no client portal yet), not a
+    // decision staff is making themselves. "Minta Revisi"/"Setujui" alone
+    // read as staff's own action, which is backwards.
     return `${statusPill}
-      <button class="ghost" onclick="requestRevision('${task.id}', '${task.briefId}')">Minta Revisi</button>
-      <button onclick="approveTask('${task.id}', '${task.briefId}')">Setujui</button>
+      <button class="ghost" onclick="requestRevision('${task.id}', '${task.briefId}')">Klien Minta Revisi</button>
+      <button onclick="approveTask('${task.id}', '${task.briefId}')">Klien Setuju</button>
       <span class="muted">revisi ${task.revisionsUsed}/${task.maxRevisions}</span>`;
   }
   return `${statusPill} <span class="status ok" style="margin:0;">Selesai ✓</span>`;
