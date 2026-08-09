@@ -1,0 +1,214 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Migrations run as the owner role (DATABASE_URL_MIGRATE). The running app
+  // overrides this at runtime with `datasourceUrl: process.env.DATABASE_URL`
+  // (the RLS-restricted app_rls role) — see PrismaService. Prisma CLI commands
+  // (migrate, studio) use this env var directly.
+  url      = env("DATABASE_URL_MIGRATE")
+}
+
+enum Role {
+  AGENCY_ADMIN
+  AGENCY_EDITOR
+  CLIENT_APPROVER
+  CLIENT_VIEWER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+}
+
+enum AssetType {
+  TEXT
+}
+
+enum GenerationJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum LedgerEntryStatus {
+  PENDING
+  SETTLED
+}
+
+/// A tenant. Every other tenant-scoped table carries an organization_id
+/// column that Postgres RLS policies filter on (see migrations/0002_rls_policies).
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users    User[]
+  projects Project[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  email          String   @unique
+  passwordHash   String   @map("password_hash")
+  name           String
+  role           Role
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+model Project {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  name           String
+  description    String?
+  status         ProjectStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  tasks        Task[]
+  briefs       Brief[]
+
+  @@index([organizationId])
+  @@map("projects")
+}
+
+/// A generation request: "draft this content". Groups one or more Tasks —
+/// matches the design doc's Organization -> Project -> Brief -> Task ->
+/// Asset(versions) data shape.
+model Brief {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  title          String
+  instructions   String
+  createdById    String   @map("created_by_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+  tasks   Task[]
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@map("briefs")
+}
+
+model Task {
+  id             String     @id @default(uuid()) @db.Uuid
+  // Denormalized from project.organizationId so the RLS policy can filter
+  // directly on this table without a join. Keep this pattern for
+  // assets/generation jobs/ledger entries in later phases too.
+  organizationId String     @map("organization_id") @db.Uuid
+  projectId      String     @map("project_id") @db.Uuid
+  briefId        String?    @map("brief_id") @db.Uuid
+  title          String
+  description    String?
+  status         TaskStatus @default(TODO)
+  createdById    String     @map("created_by_id") @db.Uuid
+  assignedToId   String?    @map("assigned_to_id") @db.Uuid
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  project         Project         @relation(fields: [projectId], references: [id])
+  brief           Brief?          @relation(fields: [briefId], references: [id])
+  assets          Asset[]
+  generationJobs  GenerationJob[]
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@index([briefId])
+  @@map("tasks")
+}
+
+/// One generated draft. `version` increments each time a Task's brief is
+/// (re)generated -- this is the "Asset (versions)" data shape from the
+/// design doc, kept minimal (text only) until Phase 2 adds image/video.
+model Asset {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  taskId         String    @map("task_id") @db.Uuid
+  type           AssetType @default(TEXT)
+  content        String
+  version        Int
+  createdById    String    @map("created_by_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id])
+
+  @@unique([taskId, version])
+  @@index([organizationId])
+  @@index([taskId])
+  @@map("assets")
+}
+
+/// One AI generation call. Exists from Phase 1 purely for instrumentation --
+/// billing itself ships in Phase 3, but usage/cost can't be reconstructed
+/// retroactively for calls that were never logged.
+model GenerationJob {
+  id                  String              @id @default(uuid()) @db.Uuid
+  organizationId      String              @map("organization_id") @db.Uuid
+  taskId              String              @map("task_id") @db.Uuid
+  createdById         String              @map("created_by_id") @db.Uuid
+  provider            String              @default("anthropic")
+  model               String
+  status              GenerationJobStatus @default(PENDING)
+  promptTokens        Int?                @map("prompt_tokens")
+  completionTokens    Int?                @map("completion_tokens")
+  // Cost tracked in micros (millionths of a dollar) to avoid float rounding
+  // on per-token pricing. 1_000_000 micros = $1.00.
+  estimatedCostMicros Int                 @map("estimated_cost_micros")
+  actualCostMicros    Int?                @map("actual_cost_micros")
+  errorMessage        String?             @map("error_message")
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  task          Task                @relation(fields: [taskId], references: [id])
+  ledgerEntries CreditLedgerEntry[]
+
+  @@index([organizationId])
+  @@index([taskId])
+  @@map("generation_jobs")
+}
+
+/// Append-only ledger, never a mutated balance column -- avoids the
+/// double-spend race where two concurrent requests both read the same
+/// stale balance. Tenant balance = SUM(amountMicros). A generation request
+/// inserts a PENDING debit (the "hold") before calling the model at all;
+/// it's corrected to the real cost (SETTLED) after, or removed on failure.
+model CreditLedgerEntry {
+  id              String            @id @default(uuid()) @db.Uuid
+  organizationId  String            @map("organization_id") @db.Uuid
+  amountMicros    Int               @map("amount_micros")
+  status          LedgerEntryStatus @default(SETTLED)
+  generationJobId String?           @map("generation_job_id") @db.Uuid
+  reason          String?
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  generationJob GenerationJob? @relation(fields: [generationJobId], references: [id])
+
+  @@index([organizationId])
+  @@map("credit_ledger_entries")
+}

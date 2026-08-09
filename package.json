@@ -1,0 +1,21 @@
+{
+  "name": "ai-creative-agency",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --filter api dev",
+    "build": "pnpm --filter api build",
+    "lint": "pnpm --filter api lint",
+    "test:e2e": "pnpm --filter api test:e2e",
+    "prisma:generate": "pnpm --filter api prisma:generate",
+    "prisma:migrate": "pnpm --filter api prisma:migrate",
+    "prisma:seed": "pnpm --filter api prisma:seed"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
