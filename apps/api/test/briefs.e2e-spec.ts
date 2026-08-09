@@ -164,7 +164,10 @@ describe("Briefs + generation (e2e)", () => {
       ]),
     );
 
-    expect(task.status).toBe("IN_REVIEW");
+    // IN_PROGRESS, not IN_REVIEW: the AI draft is a starting point for a
+    // human designer/developer, not a client-ready deliverable -- see
+    // BriefsService.runGeneration()'s comment.
+    expect(task.status).toBe("IN_PROGRESS");
     expect(assets).toHaveLength(1);
     expect(assets[0].content).toBe("Hello world");
     expect(assets[0].version).toBe(1);

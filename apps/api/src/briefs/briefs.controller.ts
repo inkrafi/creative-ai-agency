@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Sse } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Sse } from "@nestjs/common";
 import { Observable } from "rxjs";
 import { MessageEvent } from "@nestjs/common";
 import { Role } from "@prisma/client";
@@ -31,15 +31,5 @@ export class BriefsController {
   @Sse(":id/generate")
   generate(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser): Observable<MessageEvent> {
     return this.briefsService.generateStream(id, user);
-  }
-
-  // 202: accepted for async processing, not "created" -- the actual result
-  // (the Asset) arrives later via the job:update WebSocket event, not in
-  // this response body.
-  @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR)
-  @HttpCode(202)
-  @Post(":id/generate-image")
-  generateImage(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.briefsService.generateImage(id, user);
   }
 }

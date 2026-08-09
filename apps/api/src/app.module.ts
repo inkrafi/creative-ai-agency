@@ -2,7 +2,6 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
 import { ClsModule } from "nestjs-cls";
-import { QueueModule } from "./queue/queue.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { AuthModule } from "./auth/auth.module";
 import { OrganizationsModule } from "./organizations/organizations.module";
@@ -18,7 +17,6 @@ import { RolesGuard } from "./common/guards/roles.guard";
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ClsModule.forRoot({ global: true, middleware: { mount: true } }),
-    QueueModule,
     PrismaModule,
     AuthModule,
     OrganizationsModule,

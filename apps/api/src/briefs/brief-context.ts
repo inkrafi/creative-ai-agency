@@ -66,36 +66,13 @@ export function formatBriefPrompt(type: BriefType, context: Record<string, unkno
 }
 
 /**
- * Turns a DESIGN brief's context into a direct visual-description prompt
- * for the image model -- deliberately NOT built from the streamed creative
- * direction in formatBriefPrompt()/BRIEF_SYSTEM_PROMPTS.DESIGN (that text
- * is marketing-toned prose for a human designer to read; an image model
- * wants a literal description of what should be in the frame).
- */
-export function formatImagePrompt(context: Record<string, unknown>): string {
-  const c = context as unknown as DesignBriefContext;
-  return [
-    `${c.designType} design, purpose: ${c.purpose}.`,
-    `Key message conveyed visually: ${c.keyMessage}.`,
-    c.styleMood ? `Style/mood: ${c.styleMood}.` : "Style/mood: clean, modern, professional.",
-    c.dimensions ? `Intended format/size: ${c.dimensions}.` : "",
-    c.textToInclude
-      ? `Include this exact text legibly in the design: "${c.textToInclude}".`
-      : "Do not include any placeholder or invented text in the image.",
-  ]
-    .filter(Boolean)
-    .join(" ");
-}
-
-/**
- * DESIGN's system prompt is explicit that THIS particular call's output is
- * a *written* creative direction, not an image -- this is the text-draft
- * SSE path (BriefsService.generateStream), separate from the actual image
- * generation job (BriefsService.generateImage / formatImagePrompt above).
- * Keeping the disclaimer even now that real image generation exists: it's
- * still true for this specific prompt/call, and a design brief is exactly
- * the kind of request that could otherwise mislead someone into expecting
- * this particular response to be a poster/graphic.
+ * DESIGN's system prompt is explicit that the output is a *written*
+ * creative direction, not an image -- by design, not a stopgap: the actual
+ * visual execution is done by a human designer on the agency's own team,
+ * using this direction as their brief. The AI's job stops at producing
+ * clear, actionable direction for that designer (or, for WEBSITE briefs,
+ * for a developer) -- never a client-ready final asset. See README's
+ * "How the review flow works" for the fuller reasoning.
  */
 export const BRIEF_SYSTEM_PROMPTS: Record<BriefType, string> = {
   WEBSITE:

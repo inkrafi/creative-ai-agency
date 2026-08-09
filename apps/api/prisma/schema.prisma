@@ -32,7 +32,6 @@ enum TaskStatus {
 
 enum AssetType {
   TEXT
-  IMAGE
 }
 
 enum GenerationJobStatus {
@@ -40,15 +39,6 @@ enum GenerationJobStatus {
   PROCESSING
   COMPLETED
   FAILED
-}
-
-/// Distinguishes the synchronous SSE text path (Phase 1) from the async
-/// BullMQ image job path (Phase 2) -- same GenerationJob table, different
-/// pipeline. Kept on the job row (not just inferred from the model name) so
-/// dashboards/queries don't need a model-name lookup table to split them.
-enum GenerationJobType {
-  TEXT
-  IMAGE
 }
 
 enum LedgerEntryStatus {
@@ -151,6 +141,13 @@ model Task {
   title          String
   description    String?
   status         TaskStatus @default(TODO)
+  // How many client-requested revision rounds are included before it's a
+  // new arrangement -- checked by TasksService.requestRevision(). Default
+  // of 2 is a reasonable agency norm, not a hard business rule; adjust
+  // per-task via PATCH until there's a real reason to make it configurable
+  // per project/contract.
+  maxRevisions   Int        @default(2) @map("max_revisions")
+  revisionsUsed  Int        @default(0) @map("revisions_used")
   createdById    String     @map("created_by_id") @db.Uuid
   assignedToId   String?    @map("assigned_to_id") @db.Uuid
   createdAt      DateTime   @default(now()) @map("created_at")
@@ -169,19 +166,16 @@ model Task {
 
 /// One generated draft. `version` increments each time a Task's brief is
 /// (re)generated -- this is the "Asset (versions)" data shape from the
-/// design doc. `content` (TEXT assets) and `storagePath` (IMAGE assets) are
-/// each only meaningful for their own AssetType; both nullable rather than
-/// splitting into subtype tables, since there are only two types today.
+/// design doc, kept minimal (text only) -- image generation was tried in an
+/// earlier iteration and removed: the AI's output is always a starting
+/// point for a human designer/developer on the agency's own team, never a
+/// generated final asset. See brief-context.ts's BRIEF_SYSTEM_PROMPTS comment.
 model Asset {
   id             String    @id @default(uuid()) @db.Uuid
   organizationId String    @map("organization_id") @db.Uuid
   taskId         String    @map("task_id") @db.Uuid
   type           AssetType @default(TEXT)
-  content        String?
-  // Relative path under the local image storage root, e.g.
-  // "{organizationId}/{uuid}.png" -- see storage/local-image-storage.service.ts.
-  // Served statically at /generated/{storagePath} (see main.ts).
-  storagePath    String?   @map("storage_path")
+  content        String
   version        Int
   createdById    String    @map("created_by_id") @db.Uuid
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -202,7 +196,6 @@ model GenerationJob {
   organizationId      String              @map("organization_id") @db.Uuid
   taskId              String              @map("task_id") @db.Uuid
   createdById         String              @map("created_by_id") @db.Uuid
-  type                GenerationJobType   @default(TEXT)
   provider            String              @default("anthropic")
   model               String
   status              GenerationJobStatus @default(PENDING)

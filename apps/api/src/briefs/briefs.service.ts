@@ -1,18 +1,13 @@
-import { BadRequestException, HttpException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
-import { BriefType, GenerationJobStatus, GenerationJobType, Prisma, TaskStatus } from "@prisma/client";
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { GenerationJobStatus, Prisma, TaskStatus } from "@prisma/client";
 import { Observable } from "rxjs";
 import { MessageEvent } from "@nestjs/common";
-import { InjectQueue } from "@nestjs/bullmq";
-import { Queue } from "bullmq";
 import { PrismaService } from "../prisma/prisma.service";
 import { ModelRouterService } from "../ai/model-router.service";
-import { GeminiImageProvider } from "../ai/providers/gemini-image.provider";
-import { getImageModelPricing } from "../ai/model-pricing";
 import { CreditLedgerService } from "../generation/credit-ledger.service";
-import { IMAGE_GENERATION_QUEUE, ImageGenerationJobData } from "../generation/image-job.types";
 import { AuthenticatedUser } from "../common/decorators/current-user.decorator";
 import { CreateBriefDto } from "./dto/create-brief.dto";
-import { BRIEF_SYSTEM_PROMPTS, formatBriefPrompt, formatImagePrompt, validateBriefContext } from "./brief-context";
+import { BRIEF_SYSTEM_PROMPTS, formatBriefPrompt, validateBriefContext } from "./brief-context";
 
 const GENERATION_MAX_TOKENS = 2048;
 
@@ -22,8 +17,6 @@ export class BriefsService {
     private readonly prisma: PrismaService,
     private readonly modelRouter: ModelRouterService,
     private readonly creditLedger: CreditLedgerService,
-    private readonly geminiImageProvider: GeminiImageProvider,
-    @InjectQueue(IMAGE_GENERATION_QUEUE) private readonly imageQueue: Queue<ImageGenerationJobData>,
   ) {}
 
   /**
@@ -202,9 +195,14 @@ export class BriefsService {
         },
       });
       await this.creditLedger.settle(user.tenantId, ledgerEntryId, actualMicros);
+      // IN_PROGRESS, not IN_REVIEW: this AI draft is raw material for the
+      // agency's own designer/developer, not a client-ready deliverable --
+      // see brief-context.ts's BRIEF_SYSTEM_PROMPTS comment. IN_REVIEW is
+      // reserved for TasksService.submitForReview(), once a human has
+      // actually done the work this draft was a starting point for.
       await this.prisma.client.task.update({
         where: { id: task.id },
-        data: { status: TaskStatus.IN_REVIEW },
+        data: { status: TaskStatus.IN_PROGRESS },
       });
 
       subscriber.next({ type: "done", data: { version } });
@@ -236,63 +234,5 @@ export class BriefsService {
       orderBy: { version: "desc" },
     });
     return (last?.version ?? 0) + 1;
-  }
-
-  /**
-   * Enqueues an async image-generation job and returns immediately --
-   * unlike generateStream() (SSE, streamed inline), image generation is
-   * always job + realtime notification, never a blocking call (design doc
-   * §4.1: "Image/video are always job + webhook/websocket notification").
-   * Because this is a normal POST (not an already-committed SSE stream),
-   * failures here CAN use real HTTP status codes -- 400/402/404 -- unlike
-   * generateStream()'s error-event-only contract.
-   */
-  async generateImage(briefId: string, user: AuthenticatedUser): Promise<{ jobId: string }> {
-    const brief = await this.findOne(briefId);
-    if (brief.type !== BriefType.DESIGN) {
-      throw new BadRequestException("Image generation is only available for DESIGN briefs.");
-    }
-    if (!this.geminiImageProvider.isConfigured) {
-      throw new BadRequestException("Image generation is not configured (missing GEMINI_API_KEY).");
-    }
-
-    const task = await this.prisma.client.task.findFirst({ where: { briefId: brief.id } });
-    if (!task) throw new NotFoundException("Brief has no task to generate an image for");
-
-    const prompt = formatImagePrompt(brief.context as Record<string, unknown>);
-    const estimatedCostMicros = getImageModelPricing(this.geminiImageProvider.model);
-
-    const job = await this.prisma.client.generationJob.create({
-      data: {
-        organizationId: user.tenantId,
-        taskId: task.id,
-        createdById: user.userId,
-        type: GenerationJobType.IMAGE,
-        provider: this.geminiImageProvider.name,
-        model: this.geminiImageProvider.model,
-        estimatedCostMicros,
-      },
-    });
-
-    const reserved = await this.creditLedger.reserve(user.tenantId, job.id, estimatedCostMicros);
-    if (!reserved.ok) {
-      await this.prisma.client.generationJob.update({
-        where: { id: job.id },
-        data: { status: GenerationJobStatus.FAILED, errorMessage: "insufficient_credit" },
-      });
-      throw new HttpException("Insufficient credit balance.", HttpStatus.PAYMENT_REQUIRED);
-    }
-
-    await this.imageQueue.add("generate", {
-      organizationId: user.tenantId,
-      briefId: brief.id,
-      taskId: task.id,
-      generationJobId: job.id,
-      ledgerEntryId: reserved.ledgerEntryId,
-      prompt,
-      userId: user.userId,
-    });
-
-    return { jobId: job.id };
   }
 }

@@ -32,4 +32,19 @@ export class TasksController {
   remove(@Param("id") id: string) {
     return this.tasksService.remove(id);
   }
+
+  @Post(":id/submit-for-review")
+  submitForReview(@Param("id") id: string) {
+    return this.tasksService.submitForReview(id);
+  }
+
+  @Post(":id/request-revision")
+  requestRevision(@Param("id") id: string) {
+    return this.tasksService.requestRevision(id);
+  }
+
+  @Post(":id/approve")
+  approve(@Param("id") id: string) {
+    return this.tasksService.approve(id);
+  }
 }
