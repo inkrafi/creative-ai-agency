@@ -207,7 +207,11 @@
   </div>
 </div>
 
+<!-- Served by the Socket.io server itself (no CDN dependency) -- see realtime/realtime.gateway.ts. -->
+<script src="/socket.io/socket.io.js"></script>
 <script>
+let socket = null;
+
 let state = {
   token: sessionStorage.getItem("token") || null,
   orgId: null,
@@ -291,14 +295,69 @@ async function onAuthenticated(token) {
   document.getElementById("org-name").textContent = org.name;
   document.getElementById("auth-card").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
+  connectRealtime();
   await loadProjects();
 }
 
 function logout() {
   state = { token: null, orgId: null, orgName: null, userEmail: null, projects: [], selectedProjectId: null, briefs: [] };
   sessionStorage.removeItem("token");
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
   document.getElementById("app").classList.add("hidden");
   document.getElementById("auth-card").classList.remove("hidden");
+}
+
+// Job status (queued/processing/completed/failed) for image generation
+// pushed from the server instead of polled -- see realtime/realtime.gateway.ts.
+// Socket.io can't set custom headers either (same limitation as EventSource,
+// see generate() below), so the JWT goes in the handshake auth payload.
+function connectRealtime() {
+  if (socket) return;
+  socket = io({ auth: { token: state.token } });
+  socket.on("job:update", handleJobUpdate);
+}
+
+function handleJobUpdate(payload) {
+  const statusEl = document.getElementById(`img-status-${payload.briefId}`);
+  const btn = document.getElementById(`img-btn-${payload.briefId}`);
+  if (!statusEl) return; // brief isn't currently rendered (different project selected)
+
+  if (payload.status === "PROCESSING") {
+    statusEl.textContent = "Sedang membuat gambar…";
+    statusEl.className = "status";
+  } else if (payload.status === "COMPLETED") {
+    statusEl.textContent = "Gambar selesai dibuat.";
+    statusEl.className = "status ok";
+    const imgEl = document.getElementById(`img-result-${payload.briefId}`);
+    if (imgEl && payload.assetUrl) {
+      imgEl.src = payload.assetUrl;
+      imgEl.style.display = "block";
+    }
+    if (btn) btn.disabled = false;
+  } else if (payload.status === "FAILED") {
+    statusEl.textContent = "Gagal: " + (payload.errorMessage || "unknown error");
+    statusEl.className = "status error";
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function generateImage(briefId) {
+  const btn = document.getElementById(`img-btn-${briefId}`);
+  const statusEl = document.getElementById(`img-status-${briefId}`);
+  btn.disabled = true;
+  statusEl.textContent = "Mengantre…";
+  statusEl.className = "status";
+  try {
+    await api(`/briefs/${briefId}/generate-image`, { method: "POST" });
+    // btn stays disabled until job:update reports COMPLETED/FAILED.
+  } catch (err) {
+    statusEl.textContent = "Gagal: " + err.message;
+    statusEl.className = "status error";
+    btn.disabled = false;
+  }
 }
 
 async function loadProjects() {
@@ -363,11 +422,24 @@ function renderBriefs() {
     <div class="brief-item" id="brief-${b.id}">
       <div class="top">
         <strong>${escapeHtml(b.title)} <span class="pill">${b.type}</span></strong>
-        <button onclick="generate('${b.id}')" id="gen-btn-${b.id}">Generate</button>
+        <div class="row" style="gap:0.4rem;">
+          <button onclick="generate('${b.id}')" id="gen-btn-${b.id}">Generate</button>
+          ${
+            b.type === "DESIGN"
+              ? `<button class="ghost" onclick="generateImage('${b.id}')" id="img-btn-${b.id}">Generate Gambar</button>`
+              : ""
+          }
+        </div>
       </div>
       <div class="muted" style="margin-top:0.3rem; white-space:pre-line;">${escapeHtml(b.instructions)}</div>
       <div class="output" id="output-${b.id}"></div>
       <div class="status" id="status-${b.id}"></div>
+      ${
+        b.type === "DESIGN"
+          ? `<div class="status" id="img-status-${b.id}"></div>
+             <img id="img-result-${b.id}" style="display:none; max-width:100%; border-radius:8px; margin-top:0.5rem;" />`
+          : ""
+      }
     </div>`,
     )
     .join("");
@@ -423,7 +495,7 @@ function renderBriefTypeFields() {
     .join("");
   if (type === "DESIGN") {
     container.innerHTML +=
-      '<p class="muted">Catatan: hasil AI untuk tipe Desain saat ini masih berupa teks (arah kreatif tertulis) — belum gambar sungguhan. Generate gambar asli menyusul di fase berikutnya.</p>';
+      '<p class="muted">Setelah brief dibuat: tombol "Generate" membuat arah kreatif tertulis (gratis). Tombol "Generate Gambar" membuat gambar asli lewat AI — biaya sungguhan, sekitar $0.07 per generate.</p>';
   }
 }
 

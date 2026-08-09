@@ -21,10 +21,21 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL_MIGRATE: postgresql://postgres:postgres@localhost:5432/agency_dev?schema=public
       DATABASE_URL: postgresql://app_rls:change_me@localhost:5432/agency_dev?schema=public
       DATABASE_URL_AUTH_BYPASS: postgresql://app_auth_bypass:change_me_too@localhost:5432/agency_dev?schema=public
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
       JWT_SECRET: ci_test_secret
       JWT_EXPIRES_IN: 1d
     steps:
@@ -50,5 +61,5 @@ jobs:
       - name: Run unit tests
         run: pnpm --filter api test
 
-      - name: Run e2e tests (isolation, auth, credit ledger, briefs/generation)
+      - name: Run e2e tests (isolation, auth, credit ledger, briefs/generation, image generation)
         run: pnpm --filter api test:e2e

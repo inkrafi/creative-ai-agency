@@ -7,6 +7,7 @@ build/
 .pnpm-store/
 coverage/
 apps/api/generated/
+apps/api/storage/
 *.log
 .DS_Store
 .claude/

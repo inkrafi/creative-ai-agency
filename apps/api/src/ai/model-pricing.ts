@@ -19,3 +19,22 @@ export function getModelPricing(model: string): { input: number; output: number 
   if (!pricing) throw new Error(`No pricing configured for model "${model}"`);
   return pricing;
 }
+
+/**
+ * Image models are billed per generated image at a given resolution, not
+ * per token -- flat rate here instead of stretching the token-based
+ * estimate/actual split from CreditLedgerService onto image jobs.
+ *
+ * Source (fetched fresh, not memory -- image pricing/model names have
+ * already churned twice this year, see GeminiImageProvider's comment):
+ *  - gemini-3.1-flash-image: ~$0.067 per 1024px image, standard tier, no free tier.
+ */
+export const IMAGE_MODEL_PRICING_MICROS_PER_IMAGE: Record<string, number> = {
+  "gemini-3.1-flash-image": 67_000,
+};
+
+export function getImageModelPricing(model: string): number {
+  const pricing = IMAGE_MODEL_PRICING_MICROS_PER_IMAGE[model];
+  if (pricing === undefined) throw new Error(`No pricing configured for image model "${model}"`);
+  return pricing;
+}

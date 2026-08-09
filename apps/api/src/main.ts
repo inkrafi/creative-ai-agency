@@ -1,12 +1,17 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { NestExpressApplication } from "@nestjs/platform-express";
+import { IoAdapter } from "@nestjs/platform-socket.io";
 import { ValidationPipe } from "@nestjs/common";
 import { join } from "path";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Explicit, not relying on auto-detection -- attaches Socket.io to the
+  // same HTTP server Express uses, so RealtimeGateway shares one port.
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   // Serves apps/api/public/ (the dev test UI) via Express static middleware,
   // which runs BEFORE Nest's routing/guards see the request -- so loading
@@ -18,6 +23,10 @@ async function bootstrap() {
   // so __dirname-relative paths would resolve to dist/public (doesn't
   // exist). pnpm scripts always run with cwd = apps/api.
   app.useStaticAssets(join(process.cwd(), "public"));
+
+  // Generated images (LocalImageStorageService writes here) served directly
+  // -- same cwd-relative reasoning as the public/ mount above.
+  app.useStaticAssets(join(process.cwd(), "storage", "generated"), { prefix: "/generated" });
 
   app.useGlobalPipes(
     new ValidationPipe({

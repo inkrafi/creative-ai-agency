@@ -32,6 +32,7 @@ enum TaskStatus {
 
 enum AssetType {
   TEXT
+  IMAGE
 }
 
 enum GenerationJobStatus {
@@ -39,6 +40,15 @@ enum GenerationJobStatus {
   PROCESSING
   COMPLETED
   FAILED
+}
+
+/// Distinguishes the synchronous SSE text path (Phase 1) from the async
+/// BullMQ image job path (Phase 2) -- same GenerationJob table, different
+/// pipeline. Kept on the job row (not just inferred from the model name) so
+/// dashboards/queries don't need a model-name lookup table to split them.
+enum GenerationJobType {
+  TEXT
+  IMAGE
 }
 
 enum LedgerEntryStatus {
@@ -159,13 +169,19 @@ model Task {
 
 /// One generated draft. `version` increments each time a Task's brief is
 /// (re)generated -- this is the "Asset (versions)" data shape from the
-/// design doc, kept minimal (text only) until Phase 2 adds image/video.
+/// design doc. `content` (TEXT assets) and `storagePath` (IMAGE assets) are
+/// each only meaningful for their own AssetType; both nullable rather than
+/// splitting into subtype tables, since there are only two types today.
 model Asset {
   id             String    @id @default(uuid()) @db.Uuid
   organizationId String    @map("organization_id") @db.Uuid
   taskId         String    @map("task_id") @db.Uuid
   type           AssetType @default(TEXT)
-  content        String
+  content        String?
+  // Relative path under the local image storage root, e.g.
+  // "{organizationId}/{uuid}.png" -- see storage/local-image-storage.service.ts.
+  // Served statically at /generated/{storagePath} (see main.ts).
+  storagePath    String?   @map("storage_path")
   version        Int
   createdById    String    @map("created_by_id") @db.Uuid
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -186,6 +202,7 @@ model GenerationJob {
   organizationId      String              @map("organization_id") @db.Uuid
   taskId              String              @map("task_id") @db.Uuid
   createdById         String              @map("created_by_id") @db.Uuid
+  type                GenerationJobType   @default(TEXT)
   provider            String              @default("anthropic")
   model               String
   status              GenerationJobStatus @default(PENDING)
