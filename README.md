@@ -6,8 +6,9 @@ project/task CRUD. Phase 1 ("MVP"): AI text generation streamed into the
 brief → draft → approve workflow, with per-tenant cost accounting from the
 first request.
 
-Frontend (Next.js) is not part of either phase yet — see the design doc's
-phased roadmap.
+The real frontend (Next.js) is not part of either phase yet — see the design
+doc's phased roadmap. There is a minimal dev-only test UI, though — see
+below.
 
 ## Stack
 
@@ -78,6 +79,26 @@ built (`content.delta`/`interaction.complete` on 1.x vs
 installed package's own `.d.ts` rather than trusting docs or memory. If
 Gemini's SDK is ever upgraded, re-check `src/ai/providers/gemini.provider.ts`
 against the new `.d.ts` before assuming the event names still match.
+
+## Dev test UI
+
+Open **http://localhost:3000/** after `pnpm dev` — a single static HTML page
+(`apps/api/public/index.html`) with login/signup, project + brief creation,
+and a "Generate" button that streams the draft live. It calls the exact
+same API as the curl examples below; it's a testing convenience, not the
+product's real frontend (no build step, no framework, plain JS).
+
+Two things worth knowing if you touch it:
+
+- It's served via `app.useStaticAssets()` (Express static middleware) in
+  `main.ts`, not a Nest controller -- deliberately, so loading the page
+  doesn't get rejected by `JwtAuthGuard` for having no token yet.
+- The native browser `EventSource` API can't set an `Authorization` header,
+  and `/briefs/:id/generate` requires a Bearer token -- so the page reads
+  the SSE stream manually via `fetch()` + `response.body.getReader()`
+  instead, parsing `event:`/`data:` lines itself. If you add another SSE
+  endpoint, reuse that same parsing code rather than switching to
+  `EventSource` (it will silently 401).
 
 ## Local setup
 
@@ -180,12 +201,15 @@ Per the doc's phased roadmap — not oversights:
 - **Client Portal / `client-approver` & `client-viewer` role UX** — the
   roles exist in the schema (so the enum doesn't need a breaking change
   later), but no portal-specific routes exist yet.
+- **Real frontend (Next.js)** — `apps/api/public/index.html` is a one-file
+  dev test page (see above), not the product's actual UI.
 
 ## Repo layout
 
 ```
 apps/
   api/            NestJS backend (this phase's only app)
+    public/       one-file dev test UI, static-served -- not the real frontend
     prisma/       schema + hand-authored SQL migrations (incl. RLS policies)
     src/
       prisma/     PrismaService (tenant-scoped client) + AuthBypassPrismaService
