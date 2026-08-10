@@ -377,6 +377,18 @@ function renderDeliverableLink(task) {
   </div>`;
 }
 
+function renderRevisionHistory(task) {
+  const list = task.revisionRequests;
+  if (!list || list.length === 0) return "";
+  const items = list
+    .map((r) => `<li>Ronde ${r.round}: ${escapeHtml(r.note)}</li>`)
+    .join("");
+  return `<div class="muted" style="width:100%; margin-top:0.3rem;">
+    Riwayat revisi:
+    <ul style="margin:0.2rem 0 0; padding-left:1.1rem;">${items}</ul>
+  </div>`;
+}
+
 function renderTaskRowContents(task) {
   if (!task) return "";
   const statusPill = `<span class="pill">${TASK_STATUS_LABEL[task.status]}</span>`;
@@ -388,7 +400,8 @@ function renderTaskRowContents(task) {
       <input type="url" id="deliverable-url-${task.id}" placeholder="Link hasil akhir (wajib)" style="flex:1; min-width:160px; width:auto; margin-bottom:0;" />
       <input type="text" id="deliverable-note-${task.id}" placeholder="Catatan (opsional)" style="flex:1; min-width:120px; width:auto; margin-bottom:0;" />
       <button class="ghost" onclick="submitForReview('${task.id}', '${task.briefId}')">Submit untuk Review</button>
-      ${renderDeliverableLink(task)}`;
+      ${renderDeliverableLink(task)}
+      ${renderRevisionHistory(task)}`;
   }
   if (task.status === "IN_REVIEW") {
     // Labeled "Klien ..." on purpose -- these buttons record the client's
@@ -396,12 +409,14 @@ function renderTaskRowContents(task) {
     // decision staff is making themselves. "Minta Revisi"/"Setujui" alone
     // read as staff's own action, which is backwards.
     return `${statusPill}
-      <button class="ghost" onclick="requestRevision('${task.id}', '${task.briefId}')">Klien Minta Revisi</button>
       <button onclick="approveTask('${task.id}', '${task.briefId}')">Klien Setuju</button>
       <span class="muted">revisi ${task.revisionsUsed}/${task.maxRevisions}</span>
-      ${renderDeliverableLink(task)}`;
+      ${renderDeliverableLink(task)}
+      <input type="text" id="revision-note-${task.id}" placeholder="Apa yang perlu diubah? (wajib untuk minta revisi)" style="flex:1; min-width:220px; width:auto; margin-bottom:0;" />
+      <button class="ghost" onclick="requestRevision('${task.id}', '${task.briefId}')">Klien Minta Revisi</button>
+      ${renderRevisionHistory(task)}`;
   }
-  return `${statusPill} <span class="status ok" style="margin:0;">Selesai ✓</span>${renderDeliverableLink(task)}`;
+  return `${statusPill} <span class="status ok" style="margin:0;">Selesai ✓</span>${renderDeliverableLink(task)}${renderRevisionHistory(task)}`;
 }
 
 // Refreshes only the one brief's task-status row (not the whole list) so it
@@ -434,7 +449,13 @@ function submitForReview(taskId, briefId) {
   runTaskAction(taskId, briefId, "submit-for-review", { deliverableUrl, deliverableNote: deliverableNote || undefined });
 }
 function requestRevision(taskId, briefId) {
-  runTaskAction(taskId, briefId, "request-revision");
+  const noteEl = document.getElementById(`revision-note-${taskId}`);
+  const note = noteEl.value.trim();
+  if (!note) {
+    showError("Jelaskan apa yang perlu diubah sebelum minta revisi.");
+    return;
+  }
+  runTaskAction(taskId, briefId, "request-revision", { note });
 }
 function approveTask(taskId, briefId) {
   runTaskAction(taskId, briefId, "approve");

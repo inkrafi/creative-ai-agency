@@ -106,10 +106,16 @@ a new arrangement, not a free revision. All three actions are on
   overwriting the last one, so re-submitting after a revision round doesn't
   erase what was shown in the previous round.
 - `POST /tasks/:id/request-revision` — `IN_REVIEW` → `IN_PROGRESS`, and
-  increments `Task.revisionsUsed`. Blocked with `402` once `revisionsUsed`
-  reaches `Task.maxRevisions` (default 2) — mirrors the credit ledger's
-  "check before, not after" philosophy: unlimited free revisions is exactly
-  the kind of scope creep that quietly erodes an agency's margin.
+  increments `Task.revisionsUsed`. Body: `{ note: string }` — **required**,
+  same reasoning as `deliverableUrl` above: a revision request with no
+  explanation of what's wrong leaves the designer/developer with nothing to
+  act on. Logged as a `RevisionRequest` row (`round` = the new
+  `revisionsUsed` value), so the full history of what was asked for each
+  round is on record, not just the latest note. Blocked with `402` once
+  `revisionsUsed` reaches `Task.maxRevisions` (default 2) — mirrors the
+  credit ledger's "check before, not after" philosophy: unlimited free
+  revisions is exactly the kind of scope creep that quietly erodes an
+  agency's margin.
 - `POST /tasks/:id/approve` — `IN_REVIEW` → `DONE`.
 
 None of these are role-restricted to `CLIENT_APPROVER` yet -- there's no
@@ -222,8 +228,10 @@ there, see below.
   request-revision / approve cycle: happy path, the revision limit's `402`
   once `maxRevisions` is reached, rejecting actions on a task in the wrong
   state (e.g. approving something not in review), rejecting
-  submit-for-review with no `deliverableUrl`, and re-submitting after a
-  revision creating a new `Deliverable` version instead of overwriting it.
+  submit-for-review with no `deliverableUrl`, rejecting request-revision
+  with no `note`, re-submitting after a revision creating a new
+  `Deliverable` version instead of overwriting it, and a logged
+  `RevisionRequest` recording the note against its round number.
 
 **No API keys needed to run any of this.** `AnthropicProvider` and
 `GeminiProvider` still get constructed by Nest's DI container in these
@@ -249,9 +257,11 @@ oversights:
   worth its real per-image cost. Not a deferred phase; a decision.
 - **OIDC/SSO** — self-issued JWTs (email+password) for now. Doc names real
   OIDC/SSO as a Phase 4 "Enterprise-ready" item.
-- **Comment models** — the review cycle above covers approve/request-revision
-  as state transitions; there's no threaded comment/annotation model yet.
-  Comes with the Client Portal.
+- **Threaded comments/annotations** — `RevisionRequest.note` captures one
+  piece of feedback per revision round, but there's no back-and-forth
+  thread, no commenting on a specific part of the deliverable, no replies.
+  A real comment model comes with the Client Portal, if it turns out one
+  note per round isn't enough in practice.
 - **Realtime (WebSocket pub-sub)** — deferred; Redis is provisioned (cheap
   to add early per doc §6) but nothing uses it yet.
 - **Client Portal / `client-approver` & `client-viewer` role UX** — the

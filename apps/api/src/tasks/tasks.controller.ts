@@ -3,6 +3,7 @@ import { TasksService } from "./tasks.service";
 import { CreateTaskDto } from "./dto/create-task.dto";
 import { UpdateTaskDto } from "./dto/update-task.dto";
 import { SubmitForReviewDto } from "./dto/submit-for-review.dto";
+import { RequestRevisionDto } from "./dto/request-revision.dto";
 import { CurrentUser, AuthenticatedUser } from "../common/decorators/current-user.decorator";
 
 @Controller("tasks")
@@ -44,8 +45,12 @@ export class TasksController {
   }
 
   @Post(":id/request-revision")
-  requestRevision(@Param("id") id: string) {
-    return this.tasksService.requestRevision(id);
+  requestRevision(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: RequestRevisionDto,
+  ) {
+    return this.tasksService.requestRevision(id, user.userId, dto);
   }
 
   @Post(":id/approve")

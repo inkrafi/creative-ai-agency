@@ -58,6 +58,13 @@ describe("Task review flow (e2e)", () => {
       .send({ deliverableUrl: url, deliverableNote: "First pass, footer still pending" });
   }
 
+  function requestRevision(token: string, taskId: string, note = "Colors are too bright, please tone down") {
+    return request(app.getHttpServer())
+      .post(`/tasks/${taskId}/request-revision`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ note });
+  }
+
   it("starts TODO with the default revision allowance", async () => {
     const token = await signup();
     const task = await createTask(token);
@@ -96,18 +103,32 @@ describe("Task review flow (e2e)", () => {
     expect(approved.body.status).toBe("DONE");
   });
 
-  it("a revision request sends the task back to IN_PROGRESS and counts against the limit", async () => {
+  it("a revision request sends the task back to IN_PROGRESS, counts against the limit, and logs the note", async () => {
     const token = await signup();
     const task = await createTask(token);
 
     await submitForReview(token, task.id).expect(201);
 
-    const revised = await request(app.getHttpServer())
-      .post(`/tasks/${task.id}/request-revision`)
-      .set("Authorization", `Bearer ${token}`)
-      .expect(201);
+    const revised = await requestRevision(token, task.id, "Colors are too bright, please tone down").expect(201);
     expect(revised.body.status).toBe("IN_PROGRESS");
     expect(revised.body.revisionsUsed).toBe(1);
+    expect(revised.body.revisionRequests).toHaveLength(1);
+    expect(revised.body.revisionRequests[0]).toMatchObject({
+      round: 1,
+      note: "Colors are too bright, please tone down",
+    });
+  });
+
+  it("rejects request-revision without a note", async () => {
+    const token = await signup();
+    const task = await createTask(token);
+    await submitForReview(token, task.id).expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/tasks/${task.id}/request-revision`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({})
+      .expect(400);
   });
 
   it("re-submitting after a revision adds a new deliverable version instead of overwriting it", async () => {
@@ -115,10 +136,7 @@ describe("Task review flow (e2e)", () => {
     const task = await createTask(token);
 
     await submitForReview(token, task.id, "https://staging.example.test/v1").expect(201);
-    await request(app.getHttpServer())
-      .post(`/tasks/${task.id}/request-revision`)
-      .set("Authorization", `Bearer ${token}`)
-      .expect(201);
+    await requestRevision(token, task.id).expect(201);
     const resubmitted = await submitForReview(token, task.id, "https://staging.example.test/v2").expect(201);
 
     expect(resubmitted.body.deliverables).toHaveLength(2);
@@ -134,18 +152,12 @@ describe("Task review flow (e2e)", () => {
     // Use up both included revisions (default maxRevisions: 2).
     for (let i = 0; i < 2; i++) {
       await submitForReview(token, task.id).expect(201);
-      await request(app.getHttpServer())
-        .post(`/tasks/${task.id}/request-revision`)
-        .set("Authorization", `Bearer ${token}`)
-        .expect(201);
+      await requestRevision(token, task.id).expect(201);
     }
 
     await submitForReview(token, task.id).expect(201);
 
-    const res = await request(app.getHttpServer())
-      .post(`/tasks/${task.id}/request-revision`)
-      .set("Authorization", `Bearer ${token}`)
-      .expect(402);
+    const res = await requestRevision(token, task.id).expect(402);
     expect(res.body.message).toMatch(/revision limit reached/i);
 
     const stillInReview = await request(app.getHttpServer())
@@ -160,10 +172,9 @@ describe("Task review flow (e2e)", () => {
     const token = await signup();
     const task = await createTask(token); // status: TODO
 
-    await request(app.getHttpServer())
-      .post(`/tasks/${task.id}/request-revision`)
-      .set("Authorization", `Bearer ${token}`)
-      .expect(400);
+    // A valid note is included so the 400 is genuinely from the status
+    // check, not incidentally from DTO validation rejecting a missing note.
+    await requestRevision(token, task.id, "Some feedback").expect(400);
 
     await request(app.getHttpServer())
       .post(`/tasks/${task.id}/approve`)

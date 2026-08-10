@@ -4,6 +4,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { CreateTaskDto } from "./dto/create-task.dto";
 import { UpdateTaskDto } from "./dto/update-task.dto";
 import { SubmitForReviewDto } from "./dto/submit-for-review.dto";
+import { RequestRevisionDto } from "./dto/request-revision.dto";
 
 @Injectable()
 export class TasksService {
@@ -34,14 +35,20 @@ export class TasksService {
     return this.prisma.client.task.findMany({
       where: { projectId },
       orderBy: { createdAt: "desc" },
-      include: { deliverables: { orderBy: { version: "desc" } } },
+      include: {
+        deliverables: { orderBy: { version: "desc" } },
+        revisionRequests: { orderBy: { round: "desc" } },
+      },
     });
   }
 
   async findOne(id: string) {
     const task = await this.prisma.client.task.findUnique({
       where: { id },
-      include: { deliverables: { orderBy: { version: "desc" } } },
+      include: {
+        deliverables: { orderBy: { version: "desc" } },
+        revisionRequests: { orderBy: { round: "desc" } },
+      },
     });
     if (!task) throw new NotFoundException("Task not found");
     return task;
@@ -93,7 +100,10 @@ export class TasksService {
       return tx.task.update({
         where: { id },
         data: { status: TaskStatus.IN_REVIEW },
-        include: { deliverables: { orderBy: { version: "desc" } } },
+        include: {
+          deliverables: { orderBy: { version: "desc" } },
+          revisionRequests: { orderBy: { round: "desc" } },
+        },
       });
     });
   }
@@ -106,8 +116,11 @@ export class TasksService {
    * kind of scope creep that quietly erodes margin. 402, not 400: this is
    * a "you've used what's included" limit, the same shape as insufficient
    * credit, not a malformed request.
+   *
+   * Logs a RevisionRequest (round = the new revisionsUsed value) alongside
+   * the status flip -- see its schema comment for why `note` is required.
    */
-  async requestRevision(id: string) {
+  async requestRevision(id: string, userId: string, dto: RequestRevisionDto) {
     const task = await this.findOne(id);
     if (task.status !== TaskStatus.IN_REVIEW) {
       throw new BadRequestException("Only a task currently in review can have a revision requested.");
@@ -118,9 +131,27 @@ export class TasksService {
         HttpStatus.PAYMENT_REQUIRED,
       );
     }
-    return this.prisma.client.task.update({
-      where: { id },
-      data: { status: TaskStatus.IN_PROGRESS, revisionsUsed: { increment: 1 } },
+
+    const round = task.revisionsUsed + 1;
+
+    return this.prisma.runAsTenant(task.organizationId, async (tx) => {
+      await tx.revisionRequest.create({
+        data: {
+          organizationId: task.organizationId,
+          taskId: id,
+          note: dto.note,
+          round,
+          createdById: userId,
+        },
+      });
+      return tx.task.update({
+        where: { id },
+        data: { status: TaskStatus.IN_PROGRESS, revisionsUsed: { increment: 1 } },
+        include: {
+          deliverables: { orderBy: { version: "desc" } },
+          revisionRequests: { orderBy: { round: "desc" } },
+        },
+      });
     });
   }
 
@@ -130,6 +161,13 @@ export class TasksService {
     if (task.status !== TaskStatus.IN_REVIEW) {
       throw new BadRequestException("Only a task currently in review can be approved.");
     }
-    return this.prisma.client.task.update({ where: { id }, data: { status: TaskStatus.DONE } });
+    return this.prisma.client.task.update({
+      where: { id },
+      data: { status: TaskStatus.DONE },
+      include: {
+        deliverables: { orderBy: { version: "desc" } },
+        revisionRequests: { orderBy: { round: "desc" } },
+      },
+    });
   }
 }
