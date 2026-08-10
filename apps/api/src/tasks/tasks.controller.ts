@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestj
 import { TasksService } from "./tasks.service";
 import { CreateTaskDto } from "./dto/create-task.dto";
 import { UpdateTaskDto } from "./dto/update-task.dto";
+import { SubmitForReviewDto } from "./dto/submit-for-review.dto";
 import { CurrentUser, AuthenticatedUser } from "../common/decorators/current-user.decorator";
 
 @Controller("tasks")
@@ -34,8 +35,12 @@ export class TasksController {
   }
 
   @Post(":id/submit-for-review")
-  submitForReview(@Param("id") id: string) {
-    return this.tasksService.submitForReview(id);
+  submitForReview(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SubmitForReviewDto,
+  ) {
+    return this.tasksService.submitForReview(id, user.userId, dto);
   }
 
   @Post(":id/request-revision")

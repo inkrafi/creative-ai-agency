@@ -51,6 +51,13 @@ describe("Task review flow (e2e)", () => {
     return task.body as { id: string; status: string; maxRevisions: number; revisionsUsed: number };
   }
 
+  function submitForReview(token: string, taskId: string, url = "https://staging.example.test/preview") {
+    return request(app.getHttpServer())
+      .post(`/tasks/${taskId}/submit-for-review`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ deliverableUrl: url, deliverableNote: "First pass, footer still pending" });
+  }
+
   it("starts TODO with the default revision allowance", async () => {
     const token = await signup();
     const task = await createTask(token);
@@ -59,15 +66,28 @@ describe("Task review flow (e2e)", () => {
     expect(task.revisionsUsed).toBe(0);
   });
 
-  it("goes through submit-for-review -> approve", async () => {
+  it("rejects submit-for-review without a deliverable URL", async () => {
     const token = await signup();
     const task = await createTask(token);
 
-    const submitted = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post(`/tasks/${task.id}/submit-for-review`)
       .set("Authorization", `Bearer ${token}`)
-      .expect(201);
+      .send({})
+      .expect(400);
+  });
+
+  it("goes through submit-for-review -> approve, recording the deliverable", async () => {
+    const token = await signup();
+    const task = await createTask(token);
+
+    const submitted = await submitForReview(token, task.id, "https://staging.example.test/v1").expect(201);
     expect(submitted.body.status).toBe("IN_REVIEW");
+    expect(submitted.body.deliverables).toHaveLength(1);
+    expect(submitted.body.deliverables[0]).toMatchObject({
+      url: "https://staging.example.test/v1",
+      version: 1,
+    });
 
     const approved = await request(app.getHttpServer())
       .post(`/tasks/${task.id}/approve`)
@@ -80,10 +100,7 @@ describe("Task review flow (e2e)", () => {
     const token = await signup();
     const task = await createTask(token);
 
-    await request(app.getHttpServer())
-      .post(`/tasks/${task.id}/submit-for-review`)
-      .set("Authorization", `Bearer ${token}`)
-      .expect(201);
+    await submitForReview(token, task.id).expect(201);
 
     const revised = await request(app.getHttpServer())
       .post(`/tasks/${task.id}/request-revision`)
@@ -93,26 +110,37 @@ describe("Task review flow (e2e)", () => {
     expect(revised.body.revisionsUsed).toBe(1);
   });
 
+  it("re-submitting after a revision adds a new deliverable version instead of overwriting it", async () => {
+    const token = await signup();
+    const task = await createTask(token);
+
+    await submitForReview(token, task.id, "https://staging.example.test/v1").expect(201);
+    await request(app.getHttpServer())
+      .post(`/tasks/${task.id}/request-revision`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(201);
+    const resubmitted = await submitForReview(token, task.id, "https://staging.example.test/v2").expect(201);
+
+    expect(resubmitted.body.deliverables).toHaveLength(2);
+    // Newest first (findOne orders by version desc).
+    expect(resubmitted.body.deliverables[0]).toMatchObject({ url: "https://staging.example.test/v2", version: 2 });
+    expect(resubmitted.body.deliverables[1]).toMatchObject({ url: "https://staging.example.test/v1", version: 1 });
+  });
+
   it("blocks a revision request once the limit is reached (402) and never touches status", async () => {
     const token = await signup();
     const task = await createTask(token);
 
     // Use up both included revisions (default maxRevisions: 2).
     for (let i = 0; i < 2; i++) {
-      await request(app.getHttpServer())
-        .post(`/tasks/${task.id}/submit-for-review`)
-        .set("Authorization", `Bearer ${token}`)
-        .expect(201);
+      await submitForReview(token, task.id).expect(201);
       await request(app.getHttpServer())
         .post(`/tasks/${task.id}/request-revision`)
         .set("Authorization", `Bearer ${token}`)
         .expect(201);
     }
 
-    await request(app.getHttpServer())
-      .post(`/tasks/${task.id}/submit-for-review`)
-      .set("Authorization", `Bearer ${token}`)
-      .expect(201);
+    await submitForReview(token, task.id).expect(201);
 
     const res = await request(app.getHttpServer())
       .post(`/tasks/${task.id}/request-revision`)
@@ -147,18 +175,12 @@ describe("Task review flow (e2e)", () => {
     const token = await signup();
     const task = await createTask(token);
 
-    await request(app.getHttpServer())
-      .post(`/tasks/${task.id}/submit-for-review`)
-      .set("Authorization", `Bearer ${token}`)
-      .expect(201);
+    await submitForReview(token, task.id).expect(201);
     await request(app.getHttpServer())
       .post(`/tasks/${task.id}/approve`)
       .set("Authorization", `Bearer ${token}`)
       .expect(201);
 
-    await request(app.getHttpServer())
-      .post(`/tasks/${task.id}/submit-for-review`)
-      .set("Authorization", `Bearer ${token}`)
-      .expect(400);
+    await submitForReview(token, task.id).expect(400);
   });
 });

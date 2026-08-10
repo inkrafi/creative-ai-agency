@@ -3,6 +3,7 @@ import { TaskStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateTaskDto } from "./dto/create-task.dto";
 import { UpdateTaskDto } from "./dto/update-task.dto";
+import { SubmitForReviewDto } from "./dto/submit-for-review.dto";
 
 @Injectable()
 export class TasksService {
@@ -33,11 +34,15 @@ export class TasksService {
     return this.prisma.client.task.findMany({
       where: { projectId },
       orderBy: { createdAt: "desc" },
+      include: { deliverables: { orderBy: { version: "desc" } } },
     });
   }
 
   async findOne(id: string) {
-    const task = await this.prisma.client.task.findUnique({ where: { id } });
+    const task = await this.prisma.client.task.findUnique({
+      where: { id },
+      include: { deliverables: { orderBy: { version: "desc" } } },
+    });
     if (!task) throw new NotFoundException("Task not found");
     return task;
   }
@@ -54,18 +59,43 @@ export class TasksService {
 
   /**
    * A human (designer/developer) has finished working from the AI draft and
-   * is putting the result up for the client to look at. Not restricted to
-   * @Roles(CLIENT_*) the way approve()/requestRevision() conceptually
-   * should be eventually -- there's no client-facing auth yet (see design
-   * doc's Client Portal, not built), so any tenant member can call this for
-   * now. Revisit once that portal exists.
+   * is putting the result up for the client to look at. Requires a
+   * Deliverable (a real link the client can open) -- "submit for review"
+   * with nothing concrete to look at isn't a real review request, see
+   * Deliverable's schema comment. Versioned the same way Asset is, so a
+   * second submission (after a revision round) doesn't overwrite what was
+   * shown last time.
+   *
+   * Not restricted to @Roles(CLIENT_*) the way approve()/requestRevision()
+   * conceptually should be eventually -- there's no client-facing auth yet
+   * (see design doc's Client Portal, not built), so any tenant member can
+   * call this for now. Revisit once that portal exists.
    */
-  async submitForReview(id: string) {
+  async submitForReview(id: string, userId: string, dto: SubmitForReviewDto) {
     const task = await this.findOne(id);
     if (task.status === TaskStatus.DONE) {
       throw new BadRequestException("This task is already done.");
     }
-    return this.prisma.client.task.update({ where: { id }, data: { status: TaskStatus.IN_REVIEW } });
+
+    const nextVersion = (task.deliverables[0]?.version ?? 0) + 1;
+
+    return this.prisma.runAsTenant(task.organizationId, async (tx) => {
+      await tx.deliverable.create({
+        data: {
+          organizationId: task.organizationId,
+          taskId: id,
+          url: dto.deliverableUrl,
+          note: dto.deliverableNote,
+          version: nextVersion,
+          createdById: userId,
+        },
+      });
+      return tx.task.update({
+        where: { id },
+        data: { status: TaskStatus.IN_REVIEW },
+        include: { deliverables: { orderBy: { version: "desc" } } },
+      });
+    });
   }
 
   /**

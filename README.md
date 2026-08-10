@@ -99,6 +99,12 @@ a new arrangement, not a free revision. All three actions are on
 `TasksController`/`TasksService`:
 
 - `POST /tasks/:id/submit-for-review` — `TODO`/`IN_PROGRESS` → `IN_REVIEW`.
+  Body: `{ deliverableUrl: string, deliverableNote?: string }`. The URL is
+  **required** -- "review this" with nothing concrete for the client to
+  open isn't a real review request. Each call creates a new `Deliverable`
+  row (versioned like `Asset`, see its schema comment) rather than
+  overwriting the last one, so re-submitting after a revision round doesn't
+  erase what was shown in the previous round.
 - `POST /tasks/:id/request-revision` — `IN_REVIEW` → `IN_PROGRESS`, and
   increments `Task.revisionsUsed`. Blocked with `402` once `revisionsUsed`
   reaches `Task.maxRevisions` (default 2) — mirrors the credit ledger's
@@ -174,8 +180,10 @@ curl -X POST localhost:3000/briefs -H "Authorization: Bearer <accessToken>" -H "
 curl -N localhost:3000/briefs/<briefId>/generate -H "Authorization: Bearer <accessToken>"
 
 # Once a human has built/designed the real thing from that draft, submit it
-# for review, then approve (or request changes -- up to maxRevisions times)
-curl -X POST localhost:3000/tasks/<taskId>/submit-for-review -H "Authorization: Bearer <accessToken>"
+# for review (deliverableUrl is required -- a link to the real work), then
+# approve (or request changes -- up to maxRevisions times)
+curl -X POST localhost:3000/tasks/<taskId>/submit-for-review -H "Authorization: Bearer <accessToken>" -H "Content-Type: application/json" \
+  -d '{"deliverableUrl":"https://staging.example.com/preview","deliverableNote":"Footer still pending"}'
 curl -X POST localhost:3000/tasks/<taskId>/approve -H "Authorization: Bearer <accessToken>"
 ```
 
@@ -212,8 +220,10 @@ there, see below.
   still exercises the real controller/guard/RLS/ledger path.
 - `test/task-review-flow.e2e-spec.ts` — the submit-for-review /
   request-revision / approve cycle: happy path, the revision limit's `402`
-  once `maxRevisions` is reached, and rejecting actions on a task in the
-  wrong state (e.g. approving something not in review).
+  once `maxRevisions` is reached, rejecting actions on a task in the wrong
+  state (e.g. approving something not in review), rejecting
+  submit-for-review with no `deliverableUrl`, and re-submitting after a
+  revision creating a new `Deliverable` version instead of overwriting it.
 
 **No API keys needed to run any of this.** `AnthropicProvider` and
 `GeminiProvider` still get constructed by Nest's DI container in these

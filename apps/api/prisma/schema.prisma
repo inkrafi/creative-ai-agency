@@ -157,6 +157,7 @@ model Task {
   brief           Brief?          @relation(fields: [briefId], references: [id])
   assets          Asset[]
   generationJobs  GenerationJob[]
+  deliverables    Deliverable[]
 
   @@index([organizationId])
   @@index([projectId])
@@ -186,6 +187,31 @@ model Asset {
   @@index([organizationId])
   @@index([taskId])
   @@map("assets")
+}
+
+/// What actually gets shown to the client for review -- a link to the real,
+/// human-made work (a staging URL, a design file, whatever fits the brief),
+/// not the AI draft in Asset. One row per submitForReview() call, versioned
+/// the same way Asset is, so re-submitting after a revision round doesn't
+/// erase what was shown last time. Required (not optional) precisely
+/// because "submit for review" with nothing concrete for the client to
+/// look at isn't a real review request.
+model Deliverable {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  taskId         String   @map("task_id") @db.Uuid
+  url            String
+  note           String?
+  version        Int
+  createdById    String   @map("created_by_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id])
+
+  @@unique([taskId, version])
+  @@index([organizationId])
+  @@index([taskId])
+  @@map("deliverables")
 }
 
 /// One AI generation call. Exists from Phase 1 purely for instrumentation --

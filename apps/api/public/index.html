@@ -368,11 +368,27 @@ const TASK_STATUS_LABEL = {
 // stand in for the client review cycle -- there's no client-facing portal
 // yet, so this dev UI drives those same endpoints on the client's behalf
 // for manual testing. See tasks.service.ts for the actual business rules.
+function renderDeliverableLink(task) {
+  const d = task.deliverables && task.deliverables[0];
+  if (!d) return "";
+  return `<div class="muted" style="width:100%; margin-top:0.3rem;">
+    Link (v${d.version}): <a href="${escapeHtml(d.url)}" target="_blank" rel="noopener">${escapeHtml(d.url)}</a>
+    ${d.note ? " — " + escapeHtml(d.note) : ""}
+  </div>`;
+}
+
 function renderTaskRowContents(task) {
   if (!task) return "";
   const statusPill = `<span class="pill">${TASK_STATUS_LABEL[task.status]}</span>`;
   if (task.status === "TODO" || task.status === "IN_PROGRESS") {
-    return `${statusPill} <button class="ghost" onclick="submitForReview('${task.id}', '${task.briefId}')">Submit untuk Review</button>`;
+    // A real link is required to submit -- "review this" with nothing
+    // concrete for the client to look at isn't a real review request. See
+    // TasksService.submitForReview's comment.
+    return `${statusPill}
+      <input type="url" id="deliverable-url-${task.id}" placeholder="Link hasil akhir (wajib)" style="flex:1; min-width:160px; width:auto; margin-bottom:0;" />
+      <input type="text" id="deliverable-note-${task.id}" placeholder="Catatan (opsional)" style="flex:1; min-width:120px; width:auto; margin-bottom:0;" />
+      <button class="ghost" onclick="submitForReview('${task.id}', '${task.briefId}')">Submit untuk Review</button>
+      ${renderDeliverableLink(task)}`;
   }
   if (task.status === "IN_REVIEW") {
     // Labeled "Klien ..." on purpose -- these buttons record the client's
@@ -382,9 +398,10 @@ function renderTaskRowContents(task) {
     return `${statusPill}
       <button class="ghost" onclick="requestRevision('${task.id}', '${task.briefId}')">Klien Minta Revisi</button>
       <button onclick="approveTask('${task.id}', '${task.briefId}')">Klien Setuju</button>
-      <span class="muted">revisi ${task.revisionsUsed}/${task.maxRevisions}</span>`;
+      <span class="muted">revisi ${task.revisionsUsed}/${task.maxRevisions}</span>
+      ${renderDeliverableLink(task)}`;
   }
-  return `${statusPill} <span class="status ok" style="margin:0;">Selesai ✓</span>`;
+  return `${statusPill} <span class="status ok" style="margin:0;">Selesai ✓</span>${renderDeliverableLink(task)}`;
 }
 
 // Refreshes only the one brief's task-status row (not the whole list) so it
@@ -396,9 +413,9 @@ async function refreshTaskRow(briefId) {
   if (row) row.innerHTML = renderTaskRowContents(task);
 }
 
-async function runTaskAction(taskId, briefId, action) {
+async function runTaskAction(taskId, briefId, action, body) {
   try {
-    await api(`/tasks/${taskId}/${action}`, { method: "POST" });
+    await api(`/tasks/${taskId}/${action}`, { method: "POST", body: body ? JSON.stringify(body) : undefined });
     await refreshTaskRow(briefId);
   } catch (err) {
     showError("Gagal: " + err.message);
@@ -406,7 +423,15 @@ async function runTaskAction(taskId, briefId, action) {
 }
 
 function submitForReview(taskId, briefId) {
-  runTaskAction(taskId, briefId, "submit-for-review");
+  const urlEl = document.getElementById(`deliverable-url-${taskId}`);
+  const noteEl = document.getElementById(`deliverable-note-${taskId}`);
+  const deliverableUrl = urlEl.value.trim();
+  const deliverableNote = noteEl.value.trim();
+  if (!deliverableUrl) {
+    showError("Isi link hasil akhir dulu sebelum submit untuk review.");
+    return;
+  }
+  runTaskAction(taskId, briefId, "submit-for-review", { deliverableUrl, deliverableNote: deliverableNote || undefined });
 }
 function requestRevision(taskId, briefId) {
   runTaskAction(taskId, briefId, "request-revision");
