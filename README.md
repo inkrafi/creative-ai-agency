@@ -135,6 +135,37 @@ open to every authenticated tenant member, which is the whole point of
 staff, since today a staff member records a decision the client relayed
 out-of-band. `CLIENT_VIEWER` is excluded from both: viewing is not deciding.
 
+## Payments (DP / pelunasan)
+
+Manual bookkeeping, not a payment gateway integration -- staff records what
+came in after the fact (bank transfer, cash, QRIS, whatever), the same way
+an agency already tracks this outside any system. Lives on
+`ProjectsController`/`ProjectsService`:
+
+- `Project.totalPriceIdr` — the agreed total, in whole Rupiah (a plain
+  `Int`, not the "micros" pattern `GenerationJob`/`CreditLedgerEntry` use --
+  that exists for fractional per-token USD pricing, a different problem
+  than a client-facing IDR total). Nullable: usually agreed after the
+  initial brief discussion, not known at project creation. Set via
+  `PATCH /projects/:id`.
+- `POST /projects/:id/payments` — records one `Payment` row. Body:
+  `{ type: "DP" | "PELUNASAN" | "OTHER", amountIdr: number, method: string, note?: string }`.
+  Blocked with `400` if `totalPriceIdr` hasn't been set yet -- recording a
+  payment against an unpriced project wouldn't mean anything. Staff-only
+  (`AGENCY_ADMIN`/`AGENCY_EDITOR`); a client can see payment status but
+  doesn't self-report a payment as received.
+- `Payment` is append-only, same philosophy as `CreditLedgerEntry`: a
+  project's paid-so-far amount is `SUM(payments)`, never a stored balance
+  column that could drift from what was actually recorded. `type` is a
+  label staff picks, not an enforced state machine -- no ordering or
+  exclusivity between DP/PELUNASAN/OTHER is checked, since this is
+  bookkeeping for an arrangement the agency already manages with the
+  client, not a payment gateway's own state.
+- `GET /projects/:id` returns two derived fields alongside the raw data:
+  `totalPaidIdr` (the sum) and `paymentStatus` — `NO_PRICE` (no total set
+  yet) / `UNPAID` / `PARTIAL` / `PAID`, computed fresh on every read in
+  `ProjectsService.findOne()`, never stored.
+
 ## Dev test UI
 
 Open **http://localhost:3000/** after `pnpm dev` — a single static HTML page
@@ -203,6 +234,14 @@ curl -N localhost:3000/briefs/<briefId>/generate -H "Authorization: Bearer <acce
 curl -X POST localhost:3000/tasks/<taskId>/submit-for-review -H "Authorization: Bearer <accessToken>" -H "Content-Type: application/json" \
   -d '{"deliverableUrl":"https://staging.example.com/preview","deliverableNote":"Footer still pending"}'
 curl -X POST localhost:3000/tasks/<taskId>/approve -H "Authorization: Bearer <accessToken>"
+
+# Set a price, then record a DP and a pelunasan payment against it
+curl -X PATCH localhost:3000/projects/<projectId> -H "Authorization: Bearer <accessToken>" -H "Content-Type: application/json" \
+  -d '{"totalPriceIdr":10000000}'
+curl -X POST localhost:3000/projects/<projectId>/payments -H "Authorization: Bearer <accessToken>" -H "Content-Type: application/json" \
+  -d '{"type":"DP","amountIdr":4000000,"method":"Transfer BCA","note":"Uang muka 40%"}'
+curl -X POST localhost:3000/projects/<projectId>/payments -H "Authorization: Bearer <accessToken>" -H "Content-Type: application/json" \
+  -d '{"type":"PELUNASAN","amountIdr":6000000,"method":"Cash"}'
 ```
 
 ## Tests
@@ -250,8 +289,17 @@ there, see below.
   state (e.g. approving something not in review), rejecting
   submit-for-review with no `deliverableUrl`, rejecting request-revision
   with no `note`, re-submitting after a revision creating a new
-  `Deliverable` version instead of overwriting it, and a logged
-  `RevisionRequest` recording the note against its round number.
+  `Deliverable` version instead of overwriting it, a logged
+  `RevisionRequest` recording the note against its round number, and the
+  authorization-hole regressions: `PATCH` can't set `status` or inflate
+  `maxRevisions`, and each role gets exactly the actions it should
+  (`CLIENT_VIEWER` can read but not decide, `CLIENT_APPROVER` can decide but
+  not create/delete, `AGENCY_EDITOR` can run the work but not delete).
+- `test/project-payments.e2e-spec.ts` — `paymentStatus` transitions
+  `NO_PRICE` → `UNPAID` → `PARTIAL` → `PAID` as `Payment` rows are added,
+  rejecting a payment before a price is set, rejecting a non-positive
+  amount, and that only agency staff (not `CLIENT_VIEWER`/`CLIENT_APPROVER`)
+  can record one.
 
 **No API keys needed to run any of this.** `AnthropicProvider` and
 `GeminiProvider` still get constructed by Nest's DI container in these

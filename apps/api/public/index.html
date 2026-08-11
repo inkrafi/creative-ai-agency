@@ -184,6 +184,39 @@
       </form>
     </section>
 
+    <section class="card" id="payment-card" style="display:none;">
+      <h2>Pembayaran <span class="pill" id="payment-status-pill">—</span></h2>
+
+      <div id="payment-summary" class="muted" style="margin-bottom:0.9rem;"></div>
+
+      <form onsubmit="return handleSetPrice(event)" class="row" style="align-items:flex-end;">
+        <div style="flex:1;">
+          <label>Total harga project (Rp)</label>
+          <input id="total-price-input" type="number" min="0" step="1000" placeholder="Contoh: 10000000" style="margin-bottom:0;" />
+        </div>
+        <button type="submit">Simpan Harga</button>
+      </form>
+
+      <form onsubmit="return handleRecordPayment(event)" style="margin-top:0.9rem;">
+        <label>Catat pembayaran masuk</label>
+        <div class="row">
+          <select id="payment-type" style="flex:1; margin-bottom:0.5rem;">
+            <option value="DP">DP</option>
+            <option value="PELUNASAN">Pelunasan</option>
+            <option value="OTHER">Lainnya</option>
+          </select>
+          <input id="payment-amount" type="number" min="1" step="1000" placeholder="Jumlah (Rp)" required style="flex:1; margin-bottom:0.5rem;" />
+        </div>
+        <div class="row">
+          <input id="payment-method" placeholder="Metode (mis. Transfer BCA, Cash)" required style="flex:1; margin-bottom:0.5rem;" />
+        </div>
+        <input id="payment-note" placeholder="Catatan (opsional)" />
+        <button type="submit">Catat Pembayaran</button>
+      </form>
+
+      <div id="payment-history" style="margin-top:0.9rem;"></div>
+    </section>
+
     <section class="card">
       <h2>Briefs <span class="pill" id="selected-project-pill">pilih project dulu</span></h2>
 
@@ -342,8 +375,98 @@ async function selectProject(projectId) {
   const project = state.projects.find((p) => p.id === projectId);
   document.getElementById("selected-project-pill").textContent = project ? project.name : "—";
   document.getElementById("brief-form").classList.remove("hidden");
+  document.getElementById("payment-card").style.display = "block";
   await loadProjects(); // re-render highlight
   await loadBriefs();
+  await loadPayments();
+}
+
+const PAYMENT_STATUS_LABEL = {
+  NO_PRICE: "Belum ada harga",
+  UNPAID: "Belum dibayar",
+  PARTIAL: "Terbayar sebagian",
+  PAID: "Lunas",
+};
+
+function formatIdr(n) {
+  return "Rp " + Number(n).toLocaleString("id-ID");
+}
+
+async function loadPayments() {
+  if (!state.selectedProjectId) return;
+  const project = await api(`/projects/${state.selectedProjectId}`);
+  state.currentProjectDetail = project;
+  renderPayments(project);
+}
+
+function renderPayments(project) {
+  document.getElementById("payment-status-pill").textContent = PAYMENT_STATUS_LABEL[project.paymentStatus];
+
+  const totalPriceInput = document.getElementById("total-price-input");
+  totalPriceInput.value = project.totalPriceIdr ?? "";
+
+  const summaryEl = document.getElementById("payment-summary");
+  if (project.totalPriceIdr === null) {
+    summaryEl.textContent = "Belum ada harga yang disepakati untuk project ini.";
+  } else {
+    summaryEl.textContent =
+      `Total: ${formatIdr(project.totalPriceIdr)} — Terbayar: ${formatIdr(project.totalPaidIdr)}` +
+      (project.paymentStatus !== "PAID" ? ` — Sisa: ${formatIdr(project.totalPriceIdr - project.totalPaidIdr)}` : "");
+  }
+
+  const historyEl = document.getElementById("payment-history");
+  if (project.payments.length === 0) {
+    historyEl.innerHTML = '<span class="muted">Belum ada pembayaran tercatat.</span>';
+    return;
+  }
+  const typeLabel = { DP: "DP", PELUNASAN: "Pelunasan", OTHER: "Lainnya" };
+  historyEl.innerHTML =
+    '<div class="muted" style="margin-bottom:0.4rem;">Riwayat pembayaran:</div>' +
+    project.payments
+      .map(
+        (p) =>
+          `<div class="row" style="justify-content:space-between; padding:0.4rem 0; border-top:1px solid var(--border);">
+            <span>${typeLabel[p.type]} — ${escapeHtml(p.method)}${p.note ? " (" + escapeHtml(p.note) + ")" : ""}</span>
+            <strong>${formatIdr(p.amountIdr)}</strong>
+          </div>`,
+      )
+      .join("");
+}
+
+async function handleSetPrice(evt) {
+  evt.preventDefault();
+  const input = document.getElementById("total-price-input");
+  try {
+    await api(`/projects/${state.selectedProjectId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ totalPriceIdr: Number(input.value) }),
+    });
+    await loadPayments();
+  } catch (err) {
+    showError("Gagal simpan harga: " + err.message);
+  }
+  return false;
+}
+
+async function handleRecordPayment(evt) {
+  evt.preventDefault();
+  const type = document.getElementById("payment-type").value;
+  const amountIdr = Number(document.getElementById("payment-amount").value);
+  const method = document.getElementById("payment-method").value;
+  const note = document.getElementById("payment-note").value.trim();
+  try {
+    await api(`/projects/${state.selectedProjectId}/payments`, {
+      method: "POST",
+      body: JSON.stringify({ type, amountIdr, method, note: note || undefined }),
+    });
+    document.getElementById("payment-amount").value = "";
+    document.getElementById("payment-method").value = "";
+    document.getElementById("payment-note").value = "";
+    await loadPayments();
+  } catch (err) {
+    showError("Gagal catat pembayaran: " + err.message);
+  }
+  return false;
 }
 
 async function loadBriefs() {

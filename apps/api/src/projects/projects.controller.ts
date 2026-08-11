@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/commo
 import { ProjectsService } from "./projects.service";
 import { CreateProjectDto } from "./dto/create-project.dto";
 import { UpdateProjectDto } from "./dto/update-project.dto";
+import { CreatePaymentDto } from "./dto/create-payment.dto";
 import { CurrentUser, AuthenticatedUser } from "../common/decorators/current-user.decorator";
 import { Roles } from "../common/decorators/roles.decorator";
 import { Role } from "@prisma/client";
@@ -36,5 +37,19 @@ export class ProjectsController {
   @Delete(":id")
   remove(@Param("id") id: string) {
     return this.projectsService.remove(id);
+  }
+
+  // Staff-only, same reasoning as ProjectsController.update: a client can
+  // see payment status (findOne is open to every authenticated tenant
+  // member), but recording that money actually arrived is a staff
+  // bookkeeping action, not something a client self-reports.
+  @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR)
+  @Post(":id/payments")
+  recordPayment(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreatePaymentDto,
+  ) {
+    return this.projectsService.recordPayment(id, user.userId, dto);
   }
 }

@@ -51,6 +51,12 @@ enum BriefType {
   DESIGN
 }
 
+enum PaymentType {
+  DP
+  PELUNASAN
+  OTHER
+}
+
 /// A tenant. Every other tenant-scoped table carries an organization_id
 /// column that Postgres RLS policies filter on (see migrations/0002_rls_policies).
 model Organization {
@@ -88,12 +94,19 @@ model Project {
   name           String
   description    String?
   status         ProjectStatus @default(ACTIVE)
+  // Whole Rupiah, no fractional subunit in real use -- a plain Int, not the
+  // "micros" pattern GenerationJob/CreditLedgerEntry use (that exists for
+  // fractional per-token USD pricing, a different problem). Nullable: the
+  // price is usually agreed after the initial brief discussion, not known
+  // at project creation.
+  totalPriceIdr  Int?          @map("total_price_idr")
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   tasks        Task[]
   briefs       Brief[]
+  payments     Payment[]
 
   @@index([organizationId])
   @@map("projects")
@@ -236,6 +249,34 @@ model RevisionRequest {
   @@index([organizationId])
   @@index([taskId])
   @@map("revision_requests")
+}
+
+/// A manually-recorded payment against a Project's totalPriceIdr -- no
+/// payment gateway, no automated reconciliation; staff records what came in
+/// (bank transfer, cash, QRIS, whatever) after the fact. Append-only, like
+/// CreditLedgerEntry: a project's paid-so-far amount is SUM(payments), not
+/// a stored balance column that could drift from what was actually
+/// recorded. `type` is a label the staff member picks (DP for the initial
+/// deposit, PELUNASAN for the payment that's meant to close it out, OTHER
+/// for anything else) -- not enforced ordering or exclusivity, since this
+/// is bookkeeping for humans who already know their own arrangement with
+/// the client, not a payment gateway state machine.
+model Payment {
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  projectId      String      @map("project_id") @db.Uuid
+  type           PaymentType
+  amountIdr      Int         @map("amount_idr")
+  method         String
+  note           String?
+  recordedById   String      @map("recorded_by_id") @db.Uuid
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@map("payments")
 }
 
 /// One AI generation call. Exists from Phase 1 purely for instrumentation --
