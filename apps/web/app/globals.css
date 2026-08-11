@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+/*
+ * Kravio brand tokens, derived from the 4-color brand palette:
+ *   #1664b0 (blue)  #c8e645 (lime)  #efe8de (cream)  #082d50 (navy)
+ *
+ * Raw tokens live under plain names in :root / the dark media query;
+ * @theme inline maps them into Tailwind's --color-* namespace so utilities
+ * like `bg-page`, `text-ink-muted`, `bg-brand` are generated from them.
+ * Semantic status colors (success/warning/danger) are deliberately NOT
+ * derived from the brand palette -- a status pill needs to mean the same
+ * thing regardless of brand color, and reusing lime for "success" would
+ * make it ambiguous with the brand accent.
+ */
+:root {
+  --page: #efe8de;
+  --surface: #ffffff;
+  --surface-2: #f7f3ec;
+  --border: #ddd4c2;
+  --ink: #082d50;
+  --ink-muted: #5b7186;
+
+  --brand: #1664b0;
+  --brand-ink: #ffffff;
+  --brand-dark: #0f4a82;
+  --brand-light: #dbe9f6;
+
+  --accent: #c8e645;
+  --accent-ink: #1a2e05;
+
+  --success: #1e824c;
+  --success-bg: #e3f3ea;
+  --warning: #a3660a;
+  --warning-bg: #fbf0da;
+  --danger: #c0392b;
+  --danger-bg: #fbe9e7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #082d50;
+    --surface: #0d3a63;
+    --surface-2: #0a3358;
+    --border: #1c4d74;
+    --ink: #f3efe6;
+    --ink-muted: #9fb7c9;
+
+    --brand: #5b9ce0;
+    --brand-ink: #082d50;
+    --brand-dark: #7fb2e6;
+    --brand-light: #123f68;
+
+    --accent: #c8e645;
+    --accent-ink: #1a2e05;
+
+    --success: #6fd6a3;
+    --success-bg: #113828;
+    --warning: #f0b84e;
+    --warning-bg: #3a2c10;
+    --danger: #ff8a80;
+    --danger-bg: #3a1f1c;
+  }
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-dark: var(--brand-dark);
+  --color-brand-light: var(--brand-light);
+
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+
+  --font-sans: var(--font-inter);
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+}

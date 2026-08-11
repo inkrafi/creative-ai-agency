@@ -1,0 +1,97 @@
+// Mirrors the NestJS API's response shapes -- see apps/api/src/*/dto and
+// prisma/schema.prisma. Kept as one file since the two apps don't share a
+// package; if the shapes drift, the fix is here, not a build error there.
+
+export type Role = "AGENCY_ADMIN" | "AGENCY_EDITOR" | "CLIENT_APPROVER" | "CLIENT_VIEWER";
+
+export type ProjectStatus = "ACTIVE" | "ARCHIVED";
+export type TaskStatus = "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE";
+export type BriefType = "WEBSITE" | "DESIGN";
+export type PaymentType = "DP" | "PELUNASAN" | "OTHER";
+export type PaymentStatus = "NO_PRICE" | "UNPAID" | "PARTIAL" | "PAID";
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+}
+
+export interface Payment {
+  id: string;
+  projectId: string;
+  type: PaymentType;
+  amountIdr: number;
+  method: string;
+  note: string | null;
+  recordedById: string;
+  createdAt: string;
+}
+
+export interface Project {
+  id: string;
+  organizationId: string;
+  name: string;
+  description: string | null;
+  status: ProjectStatus;
+  totalPriceIdr: number | null;
+  totalPaidIdr: number;
+  paymentStatus: PaymentStatus;
+  payments: Payment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectSummary {
+  activeProjects: number;
+  tasksInReview: number;
+  totalRevenueIdr: number;
+  outstandingIdr: number;
+}
+
+export interface Brief {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  title: string;
+  type: BriefType;
+  context: Record<string, unknown>;
+  instructions: string;
+  createdById: string;
+  createdAt: string;
+}
+
+export interface Deliverable {
+  id: string;
+  taskId: string;
+  url: string;
+  note: string | null;
+  version: number;
+  createdById: string;
+  createdAt: string;
+}
+
+export interface RevisionRequestRecord {
+  id: string;
+  taskId: string;
+  note: string;
+  round: number;
+  createdById: string;
+  createdAt: string;
+}
+
+export interface Task {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  briefId: string | null;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  maxRevisions: number;
+  revisionsUsed: number;
+  deliverables: Deliverable[];
+  revisionRequests: RevisionRequestRecord[];
+  createdAt: string;
+  updatedAt: string;
+}
