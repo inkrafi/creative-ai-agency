@@ -118,10 +118,22 @@ a new arrangement, not a free revision. All three actions are on
   agency's margin.
 - `POST /tasks/:id/approve` — `IN_REVIEW` → `DONE`.
 
-None of these are role-restricted to `CLIENT_APPROVER` yet -- there's no
-client-facing auth to restrict *to* (see "What's deliberately not here yet"
-below). Any tenant member can call them for now; that's the natural seam to
-add role checks at once the Client Portal exists.
+**Status is not directly settable.** `PATCH /tasks/:id` deliberately does
+not accept `status` -- the transitions above are the only way it changes,
+because they're what enforce the rules that make the status mean anything
+(no `IN_REVIEW` without a deliverable, no approving something not in
+review, no exceeding the revision allowance). An earlier version did accept
+it, and a single `PATCH {"status":"DONE"}` walked a task from `TODO` to
+`DONE` past all of it. `test/task-review-flow.e2e-spec.ts` has a regression
+test that fails if the field ever comes back.
+
+**Roles** (`TasksController`, mirroring `ProjectsController`): create/update
+and submit-for-review are agency staff only; delete is admin-only; reads are
+open to every authenticated tenant member, which is the whole point of
+`CLIENT_VIEWER`. `approve` and `request-revision` additionally allow
+`CLIENT_APPROVER` — they're the client's decisions — while still permitting
+staff, since today a staff member records a decision the client relayed
+out-of-band. `CLIENT_VIEWER` is excluded from both: viewing is not deciding.
 
 ## Dev test UI
 
@@ -211,7 +223,15 @@ there, see below.
 - `test/tenant-isolation.e2e-spec.ts` — raw-SQL proof that RLS blocks
   cross-tenant access at the DB layer, not just in app code. This is the
   "automated isolation tests in CI" mitigation named in the design doc's
-  risk table.
+  risk table. Beyond the behavioural cases it asserts two schema-wide
+  invariants, derived from `information_schema`/`pg_policies` rather than a
+  hardcoded table list: every tenant-scoped table has RLS **enabled and
+  forced**, and every policy goes through `current_tenant_id()` rather than
+  a raw `current_setting(...)::uuid`. Those exist because `deliverables` and
+  `revision_requests` shipped with the raw pattern the
+  `fix_rls_null_handling` migration had already replaced — the behavioural
+  test only looked at `projects`, so it stayed green. Deriving the table
+  list from the database means a future table is covered automatically.
 - `test/auth-flow.e2e-spec.ts` — black-box HTTP cross-tenant test for
   projects.
 - `test/credit-ledger.e2e-spec.ts` (integration, real Postgres) — reserve/

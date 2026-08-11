@@ -2,7 +2,10 @@ import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { randomUUID } from "crypto";
+import * as argon2 from "argon2";
+import { Role } from "@prisma/client";
 import { AppModule } from "../src/app.module";
+import { PrismaService } from "../src/prisma/prisma.service";
 
 /**
  * The client review cycle: a human (designer/developer) submits their
@@ -14,12 +17,14 @@ import { AppModule } from "../src/app.module";
  */
 describe("Task review flow (e2e)", () => {
   let app: INestApplication;
+  let prisma: PrismaService;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
     await app.init();
+    prisma = moduleRef.get(PrismaService);
   });
 
   afterAll(async () => {
@@ -193,5 +198,143 @@ describe("Task review flow (e2e)", () => {
       .expect(201);
 
     await submitForReview(token, task.id).expect(400);
+  });
+
+  /**
+   * The state machine above is only worth anything if it can't be walked
+   * around. Both of these are regression tests for holes found by actually
+   * attacking a running server, not hypotheticals:
+   *
+   *  - `PATCH /tasks/:id {"status":"DONE"}` used to take a task from TODO
+   *    straight to DONE, skipping the deliverable requirement, the client's
+   *    approval, and the revision limit in one request.
+   *  - TasksController had no @Roles() at all, so CLIENT_VIEWER -- the
+   *    view-only role -- could create, delete and approve work.
+   */
+  describe("the review state machine can't be bypassed", () => {
+    /** Signs up an org (admin), then adds a second user in `role` and logs in as them. */
+    async function signupWithRole(role: Role) {
+      const adminEmail = `${randomUUID()}@test.local`;
+      const signupRes = await request(app.getHttpServer())
+        .post("/auth/signup")
+        .send({ orgName: `Org ${adminEmail}`, adminName: "Admin", email: adminEmail, password: "password123" })
+        .expect(201);
+      const adminToken = signupRes.body.accessToken as string;
+
+      const me = await request(app.getHttpServer())
+        .get("/organizations/me")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .expect(200);
+      const organizationId = me.body.id as string;
+
+      // No user-creation endpoint exists yet, so the non-admin member is
+      // seeded directly -- the point here is the guard, not user CRUD.
+      const email = `${randomUUID()}@test.local`;
+      const passwordHash = await argon2.hash("password123");
+      await prisma.runAsTenant(organizationId, (tx) =>
+        tx.user.create({ data: { organizationId, email, passwordHash, name: `A ${role}`, role } }),
+      );
+
+      const login = await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ email, password: "password123" })
+        .expect(201);
+
+      return { adminToken, token: login.body.accessToken as string };
+    }
+
+    it("PATCH cannot set status -- the field is rejected outright", async () => {
+      const token = await signup();
+      const task = await createTask(token);
+
+      await request(app.getHttpServer())
+        .patch(`/tasks/${task.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ status: "DONE" })
+        .expect(400);
+
+      const after = await request(app.getHttpServer())
+        .get(`/tasks/${task.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+      expect(after.body.status).toBe("TODO");
+    });
+
+    it("PATCH still updates the fields it legitimately owns", async () => {
+      const token = await signup();
+      const task = await createTask(token);
+
+      const res = await request(app.getHttpServer())
+        .patch(`/tasks/${task.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "Renamed", description: "Still editable" })
+        .expect(200);
+      expect(res.body).toMatchObject({ title: "Renamed", description: "Still editable", status: "TODO" });
+    });
+
+    it("PATCH cannot inflate the revision allowance", async () => {
+      const token = await signup();
+      const task = await createTask(token);
+
+      await request(app.getHttpServer())
+        .patch(`/tasks/${task.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ maxRevisions: 999 })
+        .expect(400);
+    });
+
+    it("CLIENT_VIEWER can read tasks but cannot create, delete, approve or request revisions", async () => {
+      const { adminToken, token: viewerToken } = await signupWithRole(Role.CLIENT_VIEWER);
+      const task = await createTask(adminToken);
+      await submitForReview(adminToken, task.id).expect(201);
+
+      // Reading is the whole point of the viewer role -- that must still work.
+      await request(app.getHttpServer())
+        .get(`/tasks/${task.id}`)
+        .set("Authorization", `Bearer ${viewerToken}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .post(`/tasks/${task.id}/approve`)
+        .set("Authorization", `Bearer ${viewerToken}`)
+        .expect(403);
+      await request(app.getHttpServer())
+        .post(`/tasks/${task.id}/request-revision`)
+        .set("Authorization", `Bearer ${viewerToken}`)
+        .send({ note: "change it" })
+        .expect(403);
+      await request(app.getHttpServer())
+        .delete(`/tasks/${task.id}`)
+        .set("Authorization", `Bearer ${viewerToken}`)
+        .expect(403);
+    });
+
+    it("CLIENT_APPROVER can approve, but cannot create or delete work", async () => {
+      const { adminToken, token: approverToken } = await signupWithRole(Role.CLIENT_APPROVER);
+      const task = await createTask(adminToken);
+      await submitForReview(adminToken, task.id).expect(201);
+
+      await request(app.getHttpServer())
+        .delete(`/tasks/${task.id}`)
+        .set("Authorization", `Bearer ${approverToken}`)
+        .expect(403);
+
+      const approved = await request(app.getHttpServer())
+        .post(`/tasks/${task.id}/approve`)
+        .set("Authorization", `Bearer ${approverToken}`)
+        .expect(201);
+      expect(approved.body.status).toBe("DONE");
+    });
+
+    it("AGENCY_EDITOR can run the work but cannot delete a task", async () => {
+      const { token: editorToken } = await signupWithRole(Role.AGENCY_EDITOR);
+      const task = await createTask(editorToken);
+      await submitForReview(editorToken, task.id).expect(201);
+
+      await request(app.getHttpServer())
+        .delete(`/tasks/${task.id}`)
+        .set("Authorization", `Bearer ${editorToken}`)
+        .expect(403);
+    });
   });
 });
