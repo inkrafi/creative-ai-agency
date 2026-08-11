@@ -22,6 +22,14 @@ export class ProjectsController {
     return this.projectsService.findAll();
   }
 
+  // Must stay ABOVE @Get(":id") -- Nest matches routes in declaration
+  // order for a given method, so "summary" would otherwise be captured as
+  // the :id param and 404 against ProjectsService.findOne().
+  @Get("summary")
+  getSummary() {
+    return this.projectsService.getSummary();
+  }
+
   @Get(":id")
   findOne(@Param("id") id: string) {
     return this.projectsService.findOne(id);

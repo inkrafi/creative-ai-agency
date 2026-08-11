@@ -6,9 +6,11 @@ project/task CRUD. Phase 1 ("MVP"): AI text generation streamed into the
 brief → draft → review workflow, with per-tenant cost accounting from the
 first request.
 
-The real frontend (Next.js) is not part of either phase yet — see the design
-doc's phased roadmap. There is a minimal dev-only test UI, though — see
-below.
+There's now a real internal dashboard (`apps/web`, Next.js) covering
+overview/projects/finance for agency staff — see "Frontend (apps/web)"
+below. It's the Kravio-branded internal tool, not the client-facing portal
+the design doc's phased roadmap describes (that's still not built). There's
+also still a minimal dev-only test UI — see below.
 
 ## Stack
 
@@ -17,7 +19,8 @@ below.
 - Redis (provisioned now for a possible future realtime pub-sub layer; no
   application code uses it yet — see design doc §6 Dependencies)
 - Anthropic Claude API (primary) with a Gemini fallback for AI generation
-- pnpm workspaces (room for `apps/web` later)
+- Next.js 16 (App Router, Tailwind CSS v4) — `apps/web`, the internal dashboard
+- pnpm workspaces
 
 ## How multi-tenancy works here
 
@@ -189,6 +192,32 @@ Two things worth knowing if you touch it:
   endpoint, reuse that same parsing code rather than switching to
   `EventSource` (it will silently 401).
 
+## Frontend (apps/web)
+
+Real Next.js internal dashboard for Kravio staff: login, an overview with
+quick-stat cards (`GET /projects/summary`), a project list + detail page
+(create projects, set `totalPriceIdr`, record DP/pelunasan payments, view
+payment history and task status), and a finance page aggregating payment
+status and recent transactions across every project. Talks to `apps/api`
+over plain bearer-token REST — no server-side rendering layer against the
+API, every page is a client component fetching in `useEffect`.
+
+Two things worth knowing if you touch it:
+
+- The JWT lives in `localStorage` (see `apps/web/lib/api.ts`), not an
+  httpOnly cookie — a deliberate tradeoff, not an oversight (see the code
+  comment there for why, and what would need to change to fix it).
+- `apps/api`'s `main.ts` has `app.enableCors()` scoped to
+  `CORS_ORIGIN` (comma-separated) or a localhost dev-port fallback — the API
+  and `apps/web` run on different ports even in local dev, which is a
+  different origin as far as the browser's concerned. If you add a new dev
+  port or deploy `apps/web` somewhere, `CORS_ORIGIN` needs to include it or
+  every request 404s at the CORS preflight.
+
+Run it with `pnpm --filter web dev` (defaults to :3001 if :3000 is taken by
+the API) after the API is up; it reads `NEXT_PUBLIC_API_BASE_URL`
+(`apps/web/.env.local`, defaults to `http://localhost:3000`).
+
 ## Local setup
 
 Requires Docker Desktop and Node 20+.
@@ -339,14 +368,16 @@ oversights:
   is the real gap right now: clients currently can't interact with the
   system at all -- an agency staff member calls approve/request-revision on
   the client's behalf after hearing back from them out-of-band.
-- **Real frontend (Next.js)** — `apps/api/public/index.html` is a one-file
-  dev test page (see above), not the product's actual UI.
+- **Client-facing portal** — `apps/web` is the *internal* Kravio dashboard
+  (staff-only, gated by the existing roles). A client-facing UI for
+  approve/request-revision self-service is still not built; that's the
+  Client Portal gap described above.
 
 ## Repo layout
 
 ```
 apps/
-  api/            NestJS backend (this phase's only app)
+  api/            NestJS backend
     public/       one-file dev test UI, static-served -- not the real frontend
     prisma/       schema + hand-authored SQL migrations (incl. RLS policies)
     src/
@@ -358,4 +389,10 @@ apps/
       organizations/ users/ projects/ briefs/   CRUD modules
       tasks/      CRUD + the review cycle (submit-for-review/request-revision/approve)
     test/         e2e tests, incl. tenant isolation proof + review cycle
+  web/            Next.js internal dashboard (staff-only)
+    app/
+      login/          login page
+      (dashboard)/    auth-guarded shell (sidebar) -- overview, projects, finance
+    components/       shared UI kit + sidebar + hand-authored icons
+    lib/               api client, auth context, format/status helpers, types
 ```

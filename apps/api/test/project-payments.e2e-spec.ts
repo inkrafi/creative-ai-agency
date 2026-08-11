@@ -174,4 +174,72 @@ describe("Project payments (e2e)", () => {
 
     await recordPayment(approverToken, project.id, { type: "DP", amountIdr: 500_000, method: "Cash" }).expect(403);
   });
+
+  it("findAll() carries the same totalPaidIdr/paymentStatus fields as findOne() -- no N+1 needed for list views", async () => {
+    const token = await signup();
+    const project = await createProject(token);
+    await request(app.getHttpServer())
+      .patch(`/projects/${project.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ totalPriceIdr: 2_000_000 })
+      .expect(200);
+    await recordPayment(token, project.id, { type: "DP", amountIdr: 500_000, method: "Cash" }).expect(201);
+
+    const list = await request(app.getHttpServer())
+      .get("/projects")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    const row = list.body.find((p: { id: string }) => p.id === project.id);
+    expect(row).toMatchObject({ totalPriceIdr: 2_000_000, totalPaidIdr: 500_000, paymentStatus: "PARTIAL" });
+    // Regression check: findAll() must carry `payments` itself, not just the
+    // fields derived from it -- callers (the finance dashboard) flatten
+    // payments across projects for a combined recent-activity view.
+    expect(row.payments).toHaveLength(1);
+    expect(row.payments[0]).toMatchObject({ type: "DP", amountIdr: 500_000, method: "Cash" });
+  });
+
+  describe("GET /projects/summary", () => {
+    it("is reachable and isn't shadowed by the :id route", async () => {
+      const token = await signup();
+      const res = await request(app.getHttpServer())
+        .get("/projects/summary")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+      expect(res.body).toMatchObject({ activeProjects: 0, tasksInReview: 0, totalRevenueIdr: 0, outstandingIdr: 0 });
+    });
+
+    it("aggregates active projects, revenue, and outstanding balance across the tenant", async () => {
+      const token = await signup();
+
+      const paidOff = await createProject(token);
+      await request(app.getHttpServer())
+        .patch(`/projects/${paidOff.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ totalPriceIdr: 1_000_000 })
+        .expect(200);
+      await recordPayment(token, paidOff.id, { type: "PELUNASAN", amountIdr: 1_000_000, method: "Cash" }).expect(
+        201,
+      );
+
+      const partial = await createProject(token);
+      await request(app.getHttpServer())
+        .patch(`/projects/${partial.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ totalPriceIdr: 5_000_000 })
+        .expect(200);
+      await recordPayment(token, partial.id, { type: "DP", amountIdr: 2_000_000, method: "Transfer" }).expect(201);
+
+      await createProject(token); // no price at all -- contributes 0 to both totals
+
+      const res = await request(app.getHttpServer())
+        .get("/projects/summary")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+      expect(res.body).toMatchObject({
+        activeProjects: 3,
+        totalRevenueIdr: 3_000_000, // 1,000,000 + 2,000,000
+        outstandingIdr: 3_000_000, // (5,000,000 - 2,000,000) from the partial one only
+      });
+    });
+  });
 });

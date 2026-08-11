@@ -28,8 +28,48 @@ export class ProjectsService {
     });
   }
 
-  findAll() {
-    return this.prisma.client.project.findMany({ orderBy: { createdAt: "desc" } });
+  async findAll() {
+    const projects = await this.prisma.client.project.findMany({
+      orderBy: { createdAt: "desc" },
+      include: { payments: true },
+    });
+    // Same derivation as findOne(), applied per row -- the list/finance
+    // views need payment status without an N+1 findOne() per project.
+    // `payments` stays on the returned object (not just used to derive
+    // totalPaidIdr) -- callers like the finance dashboard flatten payments
+    // across projects for a combined recent-activity view.
+    return projects.map((project) => {
+      const totalPaidIdr = project.payments.reduce((sum, p) => sum + p.amountIdr, 0);
+      return { ...project, totalPaidIdr, paymentStatus: paymentStatusFor(project.totalPriceIdr, totalPaidIdr) };
+    });
+  }
+
+  /**
+   * Org-wide counters for the dashboard overview -- deliberately just four
+   * numbers, not a general-purpose reporting endpoint. `outstandingIdr` only
+   * counts projects with a price actually set (NO_PRICE contributes 0, not
+   * a phantom debt) and floors each project's remainder at 0 so an
+   * over-recorded payment can't produce a negative "amount owed" that would
+   * silently net against what other clients owe.
+   */
+  async getSummary() {
+    const [activeProjects, tasksInReview, projects] = await Promise.all([
+      this.prisma.client.project.count({ where: { status: "ACTIVE" } }),
+      this.prisma.client.task.count({ where: { status: "IN_REVIEW" } }),
+      this.prisma.client.project.findMany({ include: { payments: true } }),
+    ]);
+
+    let totalRevenueIdr = 0;
+    let outstandingIdr = 0;
+    for (const project of projects) {
+      const paid = project.payments.reduce((sum, p) => sum + p.amountIdr, 0);
+      totalRevenueIdr += paid;
+      if (project.totalPriceIdr !== null) {
+        outstandingIdr += Math.max(0, project.totalPriceIdr - paid);
+      }
+    }
+
+    return { activeProjects, tasksInReview, totalRevenueIdr, outstandingIdr };
   }
 
   async findOne(id: string) {
@@ -49,7 +89,12 @@ export class ProjectsService {
 
   async update(id: string, dto: UpdateProjectDto) {
     await this.findOne(id);
-    return this.prisma.client.project.update({ where: { id }, data: dto });
+    await this.prisma.client.project.update({ where: { id }, data: dto });
+    // Re-fetch through findOne() rather than returning the bare update()
+    // result, so the response always carries totalPaidIdr/paymentStatus --
+    // callers (e.g. setting totalPriceIdr) need the recomputed status
+    // immediately, not a shape that's missing those fields on this one path.
+    return this.findOne(id);
   }
 
   async remove(id: string) {
