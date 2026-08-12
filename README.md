@@ -172,9 +172,8 @@ an agency already tracks this outside any system. Lives on
 ## Client accounts, AI pricing, invoices & payment verification
 
 Backend support for clients acting for themselves instead of staff relaying
-their decisions -- no dedicated client-portal frontend exists yet (that's
-`apps/client`, still to come), but every endpoint below is real and
-role-gated today.
+their decisions -- now with a real frontend too, `apps/client` (see below).
+Every endpoint below is role-gated.
 
 - **Client accounts** — `POST /users` (`AGENCY_ADMIN` only): body
   `{ email, name, role }`, `role` restricted to `CLIENT_APPROVER` /
@@ -260,15 +259,52 @@ Two things worth knowing if you touch it:
   httpOnly cookie — a deliberate tradeoff, not an oversight (see the code
   comment there for why, and what would need to change to fix it).
 - `apps/api`'s `main.ts` has `app.enableCors()` scoped to
-  `CORS_ORIGIN` (comma-separated) or a localhost dev-port fallback — the API
-  and `apps/web` run on different ports even in local dev, which is a
-  different origin as far as the browser's concerned. If you add a new dev
-  port or deploy `apps/web` somewhere, `CORS_ORIGIN` needs to include it or
-  every request 404s at the CORS preflight.
+  `CORS_ORIGIN` (comma-separated) or a localhost dev-port fallback — the API,
+  `apps/web`, and `apps/client` all run on different ports even in local dev,
+  which is a different origin as far as the browser's concerned. If you add
+  a new dev port or deploy one of them somewhere, `CORS_ORIGIN` needs to
+  include it or every request 404s at the CORS preflight.
 
 Run it with `pnpm --filter web dev` (defaults to :3001 if :3000 is taken by
 the API) after the API is up; it reads `NEXT_PUBLIC_API_BASE_URL`
 (`apps/web/.env.local`, defaults to `http://localhost:3000`).
+
+## Frontend (apps/client) — the client portal
+
+The other half of "Client accounts, AI pricing, invoices & payment
+verification" above: a real, much simpler Next.js app for the client side
+of that flow, not just curl-able endpoints. Same stack and Kravio brand
+tokens as `apps/web` (most of `lib/`/`components/ui.tsx` started as a copy
+of it), but deliberately fewer, more form-oriented screens for a
+non-technical audience instead of a dense staff dashboard:
+
+- **Login** (`/login`) — plain email/password against the same
+  `POST /auth/login` every other role uses. No demo credentials pre-filled
+  here (unlike `apps/web`'s) since there's no seeded client account.
+- **Home** (`/`) — lists every project in the client's org (RLS already
+  guarantees they only ever see their own tenant's data at the DB layer,
+  regardless of what this UI does or doesn't show).
+- **Project hub** (`/projects/:id`) — the main screen: tasks currently
+  `IN_REVIEW` surface at the top with an inline approve / request-revision
+  form (reuses `POST /tasks/:id/approve` and `/request-revision`, which
+  already permitted `CLIENT_APPROVER` before this app existed — the gap was
+  only ever the missing UI), a payments section (current price, the
+  min-DP percentage shown as the plain informational text it's meant to be,
+  a form to submit a payment claim with an image), payment history with
+  verification-status badges, and other tasks read-only.
+- **Brief submission** (`/projects/:id/briefs/new`) — a Website/Desain
+  toggle swaps between the two field sets `brief-context.ts` expects
+  (`WebsiteBriefContext` / `DesignBriefContext`), posting straight to
+  `POST /briefs`.
+
+A staff member (`AGENCY_ADMIN`/`AGENCY_EDITOR`) who logs in here sees a
+"this is the client portal" message instead of a client-shaped view of
+their own tenant's data — this app is for clients, `apps/web` is for staff.
+
+Run it with `pnpm --filter client dev` — fixed on **:3002**
+(`apps/client/package.json`'s `dev` script), not port-fallback like
+`apps/web`, so all three apps have stable, predictable local URLs when run
+together.
 
 ## Local setup
 
@@ -435,19 +471,10 @@ oversights:
 - **Threaded comments/annotations** — `RevisionRequest.note` captures one
   piece of feedback per revision round, but there's no back-and-forth
   thread, no commenting on a specific part of the deliverable, no replies.
-  A real comment model comes with the Client Portal, if it turns out one
-  note per round isn't enough in practice.
+  A real comment model is a natural `apps/client` addition later, if it
+  turns out one note per round isn't enough in practice.
 - **Realtime (WebSocket pub-sub)** — deferred; Redis is provisioned (cheap
   to add early per doc §6) but nothing uses it yet.
-- **Client Portal frontend** — the backend side of this is now real: a
-  `CLIENT_APPROVER` can log in with their own account, submit a brief,
-  approve/request-revision on a task, and claim a payment with proof (see
-  "Client accounts, AI pricing, invoices & payment verification" above).
-  What's still missing is a UI for any of it — `apps/web` is the *internal*
-  Kravio dashboard (staff-only), and the planned `apps/client` (a separate
-  app, so a client session never shares route-space with staff-only
-  analytics) doesn't exist yet. Until it does, exercising these endpoints
-  means curl or a REST client, not a browser.
 - **Password reset / change** — doesn't exist for any role, client or
   staff. `POST /users`-provisioned client accounts get a one-time temporary
   password with no way to rotate it afterward. Fine for now, a real gap
@@ -466,13 +493,20 @@ apps/
       auth/       signup/login, JWT issuance
       ai/         ModelRouterService + Anthropic/Gemini providers + pricing
       generation/ CreditLedgerService (hold-then-settle)
+      notifications/ EmailService (Resend, optional -- invoice emails)
       organizations/ users/ projects/ briefs/   CRUD modules
       tasks/      CRUD + the review cycle (submit-for-review/request-revision/approve)
     test/         e2e tests, incl. tenant isolation proof + review cycle
-  web/            Next.js internal dashboard (staff-only)
+  web/            Next.js internal dashboard (staff-only), port 3001
     app/
       login/          login page
-      (dashboard)/    auth-guarded shell (sidebar) -- overview, projects, finance
+      (dashboard)/    auth-guarded shell (sidebar) -- overview, projects, finance,
+                       brief detail (AI price -> invoice), clients (provisioning)
     components/       shared UI kit + sidebar + hand-authored icons
     lib/               api client, auth context, format/status helpers, types
+  client/         Next.js client portal, port 3002 -- most of lib/ and
+    app/                                            components/ui.tsx started
+      login/          login page                    as a copy of apps/web's
+      (portal)/       auth-guarded shell (topbar) -- home, project hub
+                       (tasks/payments), brief submission
 ```

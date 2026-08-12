@@ -19,13 +19,18 @@ async function bootstrap() {
   // exist). pnpm scripts always run with cwd = apps/api.
   app.useStaticAssets(join(process.cwd(), "public"));
 
-  // apps/web (Next.js dev server) runs on a different port, so it's a
-  // different origin from the browser's point of view -- needs CORS even
-  // though both apps are local. CORS_ORIGIN lets deploys override this;
-  // the fallback list covers `next dev`'s default port plus its automatic
-  // fallback when 3000 is already taken by this same API.
+  // apps/web and apps/client (both Next.js dev servers) run on different
+  // ports, so each is a different origin from the browser's point of view
+  // -- needs CORS even though everything is local. CORS_ORIGIN lets
+  // deploys override this; the fallback list covers apps/web's default
+  // port + its automatic fallback when 3000 is taken by this same API,
+  // plus apps/client's fixed dev port (see apps/client/package.json).
   app.enableCors({
-    origin: process.env.CORS_ORIGIN?.split(",") ?? ["http://localhost:3000", "http://localhost:3001"],
+    origin: process.env.CORS_ORIGIN?.split(",") ?? [
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "http://localhost:3002",
+    ],
     credentials: true,
   });
 
