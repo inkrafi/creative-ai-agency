@@ -16,8 +16,9 @@ import {
   TASK_STATUS_TONE,
 } from "@/lib/status";
 import { Badge, Button, Card, Input, Label, Select, SectionTitle, Textarea } from "@/components/ui";
+import { ImageLightbox } from "@/components/image-lightbox";
 import { ChevronRightIcon } from "@/components/icons";
-import type { Invoice, PaymentType, Project, Task } from "@/lib/types";
+import type { AppUser, Invoice, PaymentType, Project, Task } from "@/lib/types";
 
 export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]">) {
   const { id } = use(params);
@@ -42,6 +43,13 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
 
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectNote, setRejectNote] = useState("");
+
+  const [clientOptions, setClientOptions] = useState<AppUser[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
 
   function load() {
     api<Project>(`/projects/${id}`)
@@ -57,6 +65,28 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   }
 
   useEffect(load, [id]);
+
+  useEffect(() => {
+    if (!canManage) return;
+    void api<AppUser[]>("/users").then((users) => setClientOptions(users.filter((u) => u.role === "CLIENT_APPROVER")));
+  }, [canManage]);
+
+  async function handleAssignClient(e: React.FormEvent) {
+    e.preventDefault();
+    setAssigning(true);
+    setAssignError(null);
+    try {
+      await api(`/projects/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ clientOwnerId: selectedClientId }),
+      });
+      load();
+    } catch (err) {
+      setAssignError(err instanceof ApiError ? err.message : "Gagal menautkan klien.");
+    } finally {
+      setAssigning(false);
+    }
+  }
 
   async function handleSetPrice(e: React.FormEvent) {
     e.preventDefault();
@@ -100,14 +130,16 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
     }
   }
 
-  async function handleVerify(paymentId: string, decision: "VERIFIED" | "REJECTED") {
+  async function handleVerify(paymentId: string, decision: "VERIFIED" | "REJECTED", note?: string) {
     setVerifyingId(paymentId);
     setVerifyError(null);
     try {
       await api(`/projects/${id}/payments/${paymentId}/verify`, {
         method: "PATCH",
-        body: JSON.stringify({ decision }),
+        body: JSON.stringify({ decision, note }),
       });
+      setRejectingId(null);
+      setRejectNote("");
       load();
     } catch (err) {
       setVerifyError(err instanceof ApiError ? err.message : "Gagal memproses verifikasi.");
@@ -142,6 +174,37 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
         </div>
         {project.description && <p className="mt-1.5 text-sm text-ink-muted">{project.description}</p>}
       </div>
+
+      {canManage && project.clientOwnerId === null && (
+        <Card className="border-warning/40 bg-warning-bg/40">
+          <SectionTitle>Proyek ini belum ditautkan ke akun klien</SectionTitle>
+          <p className="mb-3 text-sm text-ink-muted">
+            Klien tidak akan melihat proyek ini di portal mereka sampai ditautkan ke sebuah akun klien.
+          </p>
+          <form onSubmit={handleAssignClient} className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[220px] flex-1">
+              <Label>Akun klien</Label>
+              <Select value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)} required>
+                <option value="" disabled>
+                  Pilih akun klien…
+                </option>
+                {clientOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.email})
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <Button type="submit" disabled={assigning || selectedClientId === ""}>
+              {assigning ? "Menautkan…" : "Tautkan Klien"}
+            </Button>
+          </form>
+          {assignError && <p className="mt-2 text-sm text-danger">{assignError}</p>}
+          {clientOptions.length === 0 && (
+            <p className="mt-2 text-xs text-ink-muted">Belum ada akun klien terdaftar di organisasi ini.</p>
+          )}
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
@@ -241,43 +304,70 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
           <SectionTitle>Verifikasi pembayaran</SectionTitle>
           <div className="flex flex-col divide-y divide-border">
             {pendingPayments.map((pay) => (
-              <div key={pay.id} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-3">
-                  {pay.proofImageUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element -- data: URI, not an optimizable remote asset
-                    <img
-                      src={pay.proofImageUrl}
-                      alt="Bukti pembayaran"
-                      className="h-16 w-16 shrink-0 rounded-lg border border-border object-cover"
-                    />
-                  )}
-                  <div>
-                    <div className="text-sm font-medium text-ink">
-                      {PAYMENT_TYPE_LABEL[pay.type]} · {pay.method} · {formatIdr(pay.amountIdr)}
-                    </div>
-                    <div className="text-xs text-ink-muted">
-                      Diklaim {formatDate(pay.createdAt)}
-                      {pay.note ? ` — ${pay.note}` : ""}
+              <div key={pay.id} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3">
+                    {pay.proofImageUrl && (
+                      <ImageLightbox src={pay.proofImageUrl} alt={`Bukti pembayaran ${PAYMENT_TYPE_LABEL[pay.type]}`} />
+                    )}
+                    <div>
+                      <div className="text-sm font-medium text-ink">
+                        {PAYMENT_TYPE_LABEL[pay.type]} · {pay.method} · {formatIdr(pay.amountIdr)}
+                      </div>
+                      <div className="text-xs text-ink-muted">
+                        Diklaim {formatDate(pay.createdAt)}
+                        {pay.note ? ` — ${pay.note}` : ""}
+                      </div>
                     </div>
                   </div>
+                  {rejectingId !== pay.id && (
+                    <div className="flex shrink-0 gap-2">
+                      <Button
+                        type="button"
+                        onClick={() => handleVerify(pay.id, "VERIFIED")}
+                        disabled={verifyingId === pay.id}
+                      >
+                        Setujui
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => {
+                          setRejectingId(pay.id);
+                          setRejectNote("");
+                        }}
+                        disabled={verifyingId === pay.id}
+                      >
+                        Tolak
+                      </Button>
+                    </div>
+                  )}
                 </div>
-                <div className="flex shrink-0 gap-2">
-                  <Button
-                    type="button"
-                    onClick={() => handleVerify(pay.id, "VERIFIED")}
-                    disabled={verifyingId === pay.id}
-                  >
-                    Setujui
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => handleVerify(pay.id, "REJECTED")}
-                    disabled={verifyingId === pay.id}
-                  >
-                    Tolak
-                  </Button>
-                </div>
+
+                {rejectingId === pay.id && (
+                  <div className="rounded-lg border border-border bg-surface-2 p-3">
+                    <Label>Alasan penolakan (wajib diisi)</Label>
+                    <Textarea
+                      value={rejectNote}
+                      onChange={(e) => setRejectNote(e.target.value)}
+                      rows={2}
+                      placeholder="Jumlah di bukti tidak sesuai dengan yang diklaim, misalnya"
+                      autoFocus
+                    />
+                    <div className="mt-2 flex gap-2">
+                      <Button
+                        type="button"
+                        onClick={() => handleVerify(pay.id, "REJECTED", rejectNote)}
+                        disabled={verifyingId === pay.id || rejectNote.trim() === ""}
+                      >
+                        {verifyingId === pay.id ? "Menolak…" : "Kirim Penolakan"}
+                      </Button>
+                      <Button type="button" variant="ghost" onClick={() => setRejectingId(null)}>
+                        Batal
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -293,13 +383,25 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
           <div className="flex flex-col divide-y divide-border">
             {project.payments.map((pay) => (
               <div key={pay.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-ink">
-                    {PAYMENT_TYPE_LABEL[pay.type]} · {pay.method}
-                  </div>
-                  <div className="text-xs text-ink-muted">
-                    {formatDate(pay.createdAt)}
-                    {pay.note ? ` — ${pay.note}` : ""}
+                <div className="flex min-w-0 items-center gap-3">
+                  {pay.proofImageUrl && (
+                    <ImageLightbox
+                      src={pay.proofImageUrl}
+                      alt={`Bukti pembayaran ${PAYMENT_TYPE_LABEL[pay.type]}`}
+                      thumbnailClassName="h-10 w-10 rounded-md border border-border object-cover"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-ink">
+                      {PAYMENT_TYPE_LABEL[pay.type]} · {pay.method}
+                    </div>
+                    <div className="text-xs text-ink-muted">
+                      {formatDate(pay.createdAt)}
+                      {pay.note ? ` — ${pay.note}` : ""}
+                    </div>
+                    {pay.verificationStatus === "REJECTED" && pay.verificationNote && (
+                      <div className="mt-0.5 text-xs text-danger">Alasan: {pay.verificationNote}</div>
+                    )}
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -344,30 +446,24 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
           <p className="text-sm text-ink-muted">Belum ada tugas untuk proyek ini.</p>
         ) : (
           <div className="flex flex-col divide-y divide-border">
-            {tasks.map((t) => {
-              const row = (
-                <div className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-ink">{t.title}</div>
-                    <div className="text-xs text-ink-muted">
-                      Revisi {t.revisionsUsed}/{t.maxRevisions}
-                      {t.briefId && " · Lihat brief"}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Badge tone={TASK_STATUS_TONE[t.status]}>{TASK_STATUS_LABEL[t.status]}</Badge>
-                    {t.briefId && <ChevronRightIcon width={16} height={16} className="text-ink-muted" />}
+            {tasks.map((t) => (
+              <Link
+                key={t.id}
+                href={`/tasks/${t.id}`}
+                className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0 hover:bg-surface-2"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-ink">{t.title}</div>
+                  <div className="text-xs text-ink-muted">
+                    Revisi {t.revisionsUsed}/{t.maxRevisions}
                   </div>
                 </div>
-              );
-              return t.briefId ? (
-                <Link key={t.id} href={`/briefs/${t.briefId}`} className="hover:bg-surface-2">
-                  {row}
-                </Link>
-              ) : (
-                <div key={t.id}>{row}</div>
-              );
-            })}
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge tone={TASK_STATUS_TONE[t.status]}>{TASK_STATUS_LABEL[t.status]}</Badge>
+                  <ChevronRightIcon width={16} height={16} className="text-ink-muted" />
+                </div>
+              </Link>
+            ))}
           </div>
         )}
       </Card>

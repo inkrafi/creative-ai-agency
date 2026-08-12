@@ -129,3 +129,13 @@ export function AlertCircleIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function DocumentIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M5.5 2.5h6l3 3v12a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1Z" />
+      <path d="M11.5 2.5v3h3" />
+      <path d="M7 11h6M7 14h6" />
+    </svg>
+  );
+}

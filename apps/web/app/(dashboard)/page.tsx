@@ -194,6 +194,34 @@ export default function OverviewPage() {
         />
       </div>
 
+      <div>
+        <div className="mb-3 text-xs font-semibold tracking-wide text-ink-muted uppercase">Perlu Perhatian</div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Link href="/finance">
+            <StatCard
+              icon={WalletIcon}
+              label="Verifikasi Pembayaran"
+              value={summary ? String(summary.pendingPaymentVerifications) : "—"}
+              tone={summary && summary.pendingPaymentVerifications > 0 ? "warning" : "brand"}
+            />
+          </Link>
+          <StatCard
+            icon={ClockIcon}
+            label="Revisi Perlu Diklasifikasi"
+            value={summary ? String(summary.pendingRevisionClassifications) : "—"}
+            tone={summary && summary.pendingRevisionClassifications > 0 ? "warning" : "brand"}
+          />
+          <Link href="/briefs">
+            <StatCard
+              icon={AlertCircleIcon}
+              label="Brief Belum Diestimasi"
+              value={summary ? String(summary.briefsAwaitingPrice) : "—"}
+              tone={summary && summary.briefsAwaitingPrice > 0 ? "warning" : "brand"}
+            />
+          </Link>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <Card className="xl:col-span-2">
           <SectionTitle>Pendapatan</SectionTitle>
