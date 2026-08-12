@@ -1,4 +1,4 @@
-import type { PaymentStatus, ProjectStatus, TaskStatus } from "./types";
+import type { PaymentStatus, PaymentVerificationStatus, ProjectStatus, TaskStatus } from "./types";
 
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   TODO: "Belum dikerjakan",
@@ -34,3 +34,15 @@ export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
 };
 
 export const PAYMENT_TYPE_LABEL = { DP: "DP", PELUNASAN: "Pelunasan", OTHER: "Lainnya" } as const;
+
+export const PAYMENT_VERIFICATION_LABEL: Record<PaymentVerificationStatus, string> = {
+  PENDING: "Menunggu verifikasi",
+  VERIFIED: "Terverifikasi",
+  REJECTED: "Ditolak",
+};
+
+export const PAYMENT_VERIFICATION_TONE: Record<PaymentVerificationStatus, "neutral" | "warning" | "success" | "danger"> = {
+  PENDING: "warning",
+  VERIFIED: "success",
+  REJECTED: "danger",
+};

@@ -242,10 +242,17 @@ Two things worth knowing if you touch it:
 Real Next.js internal dashboard for Kravio staff: login, an overview with
 quick-stat cards (`GET /projects/summary`), a project list + detail page
 (create projects, set `totalPriceIdr`, record DP/pelunasan payments, view
-payment history and task status), and a finance page aggregating payment
-status and recent transactions across every project. Talks to `apps/api`
-over plain bearer-token REST — no server-side rendering layer against the
-API, every page is a client component fetching in `useEffect`.
+payment history and task status), a finance page aggregating payment
+status and recent transactions across every project, a brief detail page
+(AI price estimate → approve/edit → send invoice), and a "Klien"/Akun Klien
+page for provisioning `CLIENT_APPROVER`/`CLIENT_VIEWER` logins. Talks to
+`apps/api` over plain bearer-token REST — no server-side rendering layer
+against the API, every page is a client component fetching in `useEffect`.
+
+The project detail page also surfaces a "Verifikasi Pembayaran" section
+(image preview + approve/reject) whenever a client-submitted payment claim
+is `PENDING` -- see "Client accounts, AI pricing, invoices & payment
+verification" above for the backend side of this.
 
 Two things worth knowing if you touch it:
 

@@ -9,11 +9,20 @@ export type TaskStatus = "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE";
 export type BriefType = "WEBSITE" | "DESIGN";
 export type PaymentType = "DP" | "PELUNASAN" | "OTHER";
 export type PaymentStatus = "NO_PRICE" | "UNPAID" | "PARTIAL" | "PAID";
+export type PaymentVerificationStatus = "PENDING" | "VERIFIED" | "REJECTED";
 
 export interface Organization {
   id: string;
   name: string;
   slug: string;
+  createdAt: string;
+}
+
+export interface AppUser {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
   createdAt: string;
 }
 
@@ -26,6 +35,22 @@ export interface Payment {
   note: string | null;
   recordedById: string;
   createdAt: string;
+  proofImageUrl: string | null;
+  verificationStatus: PaymentVerificationStatus;
+  verifiedById: string | null;
+  verifiedAt: string | null;
+}
+
+export interface Invoice {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  briefId: string | null;
+  amountIdr: number;
+  minDpPercent: number | null;
+  createdById: string;
+  createdAt: string;
+  emailSentAt: string | null;
 }
 
 export interface Project {
@@ -35,6 +60,7 @@ export interface Project {
   description: string | null;
   status: ProjectStatus;
   totalPriceIdr: number | null;
+  minDpPercent: number | null;
   totalPaidIdr: number;
   paymentStatus: PaymentStatus;
   payments: Payment[];
@@ -57,6 +83,8 @@ export interface Brief {
   type: BriefType;
   context: Record<string, unknown>;
   instructions: string;
+  aiSuggestedPriceIdr: number | null;
+  aiPriceReasoning: string | null;
   createdById: string;
   createdAt: string;
 }

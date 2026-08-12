@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { GridIcon, FolderIcon, WalletIcon, LogOutIcon } from "./icons";
+import { GridIcon, FolderIcon, WalletIcon, UsersIcon, LogOutIcon } from "./icons";
 
 const NAV_GROUPS = [
   {
@@ -17,6 +17,10 @@ const NAV_GROUPS = [
   {
     label: "Keuangan",
     items: [{ href: "/finance", label: "Pembayaran", icon: WalletIcon }],
+  },
+  {
+    label: "Tim",
+    items: [{ href: "/clients", label: "Akun Klien", icon: UsersIcon }],
   },
 ];
 

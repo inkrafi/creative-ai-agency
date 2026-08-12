@@ -9,12 +9,15 @@ import {
   PAYMENT_STATUS_LABEL,
   PAYMENT_STATUS_TONE,
   PAYMENT_TYPE_LABEL,
+  PAYMENT_VERIFICATION_LABEL,
+  PAYMENT_VERIFICATION_TONE,
   PROJECT_STATUS_LABEL,
   TASK_STATUS_LABEL,
   TASK_STATUS_TONE,
 } from "@/lib/status";
 import { Badge, Button, Card, Input, Label, Select, SectionTitle, Textarea } from "@/components/ui";
-import type { PaymentType, Project, Task } from "@/lib/types";
+import { ChevronRightIcon } from "@/components/icons";
+import type { Invoice, PaymentType, Project, Task } from "@/lib/types";
 
 export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]">) {
   const { id } = use(params);
@@ -23,6 +26,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
 
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [notFound, setNotFound] = useState(false);
 
   const [priceInput, setPriceInput] = useState("");
@@ -36,6 +40,9 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+
   function load() {
     api<Project>(`/projects/${id}`)
       .then((p) => {
@@ -46,6 +53,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
         if (err instanceof ApiError && err.status === 404) setNotFound(true);
       });
     void api<Task[]>(`/tasks?projectId=${id}`).then(setTasks);
+    void api<Invoice[]>(`/projects/${id}/invoices`).then(setInvoices);
   }
 
   useEffect(load, [id]);
@@ -92,6 +100,22 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
     }
   }
 
+  async function handleVerify(paymentId: string, decision: "VERIFIED" | "REJECTED") {
+    setVerifyingId(paymentId);
+    setVerifyError(null);
+    try {
+      await api(`/projects/${id}/payments/${paymentId}/verify`, {
+        method: "PATCH",
+        body: JSON.stringify({ decision }),
+      });
+      load();
+    } catch (err) {
+      setVerifyError(err instanceof ApiError ? err.message : "Gagal memproses verifikasi.");
+    } finally {
+      setVerifyingId(null);
+    }
+  }
+
   if (notFound) {
     return <p className="text-sm text-ink-muted">Proyek tidak ditemukan.</p>;
   }
@@ -101,6 +125,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   }
 
   const remaining = project.totalPriceIdr !== null ? Math.max(project.totalPriceIdr - project.totalPaidIdr, 0) : null;
+  const pendingPayments = project.payments.filter((p) => p.verificationStatus === "PENDING");
 
   return (
     <div className="flex flex-col gap-6">
@@ -143,13 +168,19 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
 
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
             <div>
-              <div className="text-xs text-ink-muted">Sudah dibayar</div>
+              <div className="text-xs text-ink-muted">Sudah dibayar (terverifikasi)</div>
               <div className="font-semibold text-ink">{formatIdr(project.totalPaidIdr)}</div>
             </div>
             <div>
               <div className="text-xs text-ink-muted">Sisa</div>
               <div className="font-semibold text-ink">{remaining !== null ? formatIdr(remaining) : "—"}</div>
             </div>
+            {project.minDpPercent !== null && (
+              <div className="col-span-2">
+                <div className="text-xs text-ink-muted">DP minimal (pemberitahuan invoice)</div>
+                <div className="font-semibold text-ink">{project.minDpPercent}%</div>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -205,6 +236,55 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
         )}
       </div>
 
+      {canManage && pendingPayments.length > 0 && (
+        <Card>
+          <SectionTitle>Verifikasi pembayaran</SectionTitle>
+          <div className="flex flex-col divide-y divide-border">
+            {pendingPayments.map((pay) => (
+              <div key={pay.id} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  {pay.proofImageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element -- data: URI, not an optimizable remote asset
+                    <img
+                      src={pay.proofImageUrl}
+                      alt="Bukti pembayaran"
+                      className="h-16 w-16 shrink-0 rounded-lg border border-border object-cover"
+                    />
+                  )}
+                  <div>
+                    <div className="text-sm font-medium text-ink">
+                      {PAYMENT_TYPE_LABEL[pay.type]} · {pay.method} · {formatIdr(pay.amountIdr)}
+                    </div>
+                    <div className="text-xs text-ink-muted">
+                      Diklaim {formatDate(pay.createdAt)}
+                      {pay.note ? ` — ${pay.note}` : ""}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => handleVerify(pay.id, "VERIFIED")}
+                    disabled={verifyingId === pay.id}
+                  >
+                    Setujui
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => handleVerify(pay.id, "REJECTED")}
+                    disabled={verifyingId === pay.id}
+                  >
+                    Tolak
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {verifyError && <p className="mt-2 text-sm text-danger">{verifyError}</p>}
+        </Card>
+      )}
+
       <Card>
         <SectionTitle>Riwayat pembayaran</SectionTitle>
         {project.payments.length === 0 ? (
@@ -222,7 +302,36 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
                     {pay.note ? ` — ${pay.note}` : ""}
                   </div>
                 </div>
-                <div className="shrink-0 text-sm font-semibold text-ink">{formatIdr(pay.amountIdr)}</div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="text-sm font-semibold text-ink">{formatIdr(pay.amountIdr)}</span>
+                  <Badge tone={PAYMENT_VERIFICATION_TONE[pay.verificationStatus]}>
+                    {PAYMENT_VERIFICATION_LABEL[pay.verificationStatus]}
+                  </Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <SectionTitle>Riwayat invoice</SectionTitle>
+        {invoices.length === 0 ? (
+          <p className="text-sm text-ink-muted">Belum ada invoice terkirim.</p>
+        ) : (
+          <div className="flex flex-col divide-y divide-border">
+            {invoices.map((inv) => (
+              <div key={inv.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                <div>
+                  <div className="text-sm font-medium text-ink">{formatIdr(inv.amountIdr)}</div>
+                  <div className="text-xs text-ink-muted">
+                    {formatDate(inv.createdAt)}
+                    {inv.minDpPercent !== null ? ` — DP minimal ${inv.minDpPercent}%` : ""}
+                  </div>
+                </div>
+                <Badge tone={inv.emailSentAt ? "success" : "neutral"}>
+                  {inv.emailSentAt ? "Email terkirim" : "Email belum terkirim"}
+                </Badge>
               </div>
             ))}
           </div>
@@ -235,17 +344,30 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
           <p className="text-sm text-ink-muted">Belum ada tugas untuk proyek ini.</p>
         ) : (
           <div className="flex flex-col divide-y divide-border">
-            {tasks.map((t) => (
-              <div key={t.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-ink">{t.title}</div>
-                  <div className="text-xs text-ink-muted">
-                    Revisi {t.revisionsUsed}/{t.maxRevisions}
+            {tasks.map((t) => {
+              const row = (
+                <div className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-ink">{t.title}</div>
+                    <div className="text-xs text-ink-muted">
+                      Revisi {t.revisionsUsed}/{t.maxRevisions}
+                      {t.briefId && " · Lihat brief"}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Badge tone={TASK_STATUS_TONE[t.status]}>{TASK_STATUS_LABEL[t.status]}</Badge>
+                    {t.briefId && <ChevronRightIcon width={16} height={16} className="text-ink-muted" />}
                   </div>
                 </div>
-                <Badge tone={TASK_STATUS_TONE[t.status]}>{TASK_STATUS_LABEL[t.status]}</Badge>
-              </div>
-            ))}
+              );
+              return t.briefId ? (
+                <Link key={t.id} href={`/briefs/${t.briefId}`} className="hover:bg-surface-2">
+                  {row}
+                </Link>
+              ) : (
+                <div key={t.id}>{row}</div>
+              );
+            })}
           </div>
         )}
       </Card>

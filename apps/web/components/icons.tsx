@@ -109,6 +109,17 @@ export function ClockIcon(props: IconProps) {
   );
 }
 
+export function UsersIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="7.5" cy="7" r="2.7" />
+      <path d="M2.5 16.5c0-2.5 2.24-4.5 5-4.5s5 2 5 4.5" />
+      <circle cx="14.5" cy="7.5" r="2.1" />
+      <path d="M13 12.3c1.98.35 3.5 1.98 3.5 4.2" />
+    </svg>
+  );
+}
+
 export function AlertCircleIcon(props: IconProps) {
   return (
     <svg {...base} {...props}>
