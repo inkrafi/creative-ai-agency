@@ -66,6 +66,7 @@
   --color-danger-bg: var(--danger-bg);
 
   --font-sans: var(--font-inter);
+  --font-display: var(--font-bricolage);
 }
 
 body {

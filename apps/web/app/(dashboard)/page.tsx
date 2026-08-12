@@ -148,12 +148,16 @@ export default function OverviewPage() {
 
   const unpaidProjects = projects.filter((p) => p.paymentStatus === "UNPAID" || p.paymentStatus === "PARTIAL");
 
+  const totalPendingAttention = summary
+    ? summary.pendingPaymentVerifications + summary.pendingRevisionClassifications + summary.briefsAwaitingPrice
+    : 0;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="text-xs font-medium text-ink-muted">Utama / Ringkasan</div>
-          <h1 className="text-2xl font-bold text-ink">Ringkasan</h1>
+          <h1 className="font-display text-2xl font-semibold text-ink">Ringkasan</h1>
         </div>
         <div className="flex items-center gap-3">
           <span className="hidden text-xs text-ink-muted sm:inline">Diperbarui setiap 30 detik</span>
@@ -194,8 +198,19 @@ export default function OverviewPage() {
         />
       </div>
 
-      <div>
-        <div className="mb-3 text-xs font-semibold tracking-wide text-ink-muted uppercase">Perlu Perhatian</div>
+      <div
+        className={`rounded-2xl border p-4 transition-colors ${
+          totalPendingAttention > 0 ? "border-warning/25 bg-warning-bg/40" : "border-border bg-surface-2/60"
+        }`}
+      >
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <span className="text-xs font-semibold tracking-wide text-ink-muted uppercase">Perlu Perhatian</span>
+          {summary && (
+            <span className="text-xs font-medium text-ink-muted">
+              {totalPendingAttention > 0 ? `${totalPendingAttention} item` : "Semua beres"}
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Link href="/finance">
             <StatCard
