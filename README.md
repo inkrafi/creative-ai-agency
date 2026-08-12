@@ -196,11 +196,12 @@ Every endpoint below is role-gated.
   `{ amountIdr, minDpPercent?, briefId? }`. This is the action that
   actually sets `Project.totalPriceIdr`/`minDpPercent` (kept as its own
   `Invoice` row, not just fields on `Project`, so a later re-invoice at a
-  corrected price doesn't erase the prior amount). Emails every
-  `CLIENT_APPROVER` in the org via Resend, best-effort — a failed or
-  skipped send (no `RESEND_API_KEY` set, or no client account provisioned
-  yet) doesn't fail the request; the invoice still exists.
-  `GET /projects/:id/invoices` lists history, open to all roles.
+  corrected price doesn't erase the prior amount). Emails *only the
+  project's own client* (`Project.clientOwnerId`, see "Client isolation"
+  below) via Resend, best-effort — a failed or skipped send (no
+  `RESEND_API_KEY` set, or no client assigned yet) doesn't fail the
+  request; the invoice still exists. `GET /projects/:id/invoices` lists
+  history, open to all roles.
 - **Client-submitted payment claims** — `POST /projects/:id/payments/claim`
   (`CLIENT_APPROVER` only): same shape as staff's `POST .../payments` plus
   `proofImageBase64` (stored inline as a data URI -- no object storage
@@ -212,6 +213,39 @@ Every endpoint below is role-gated.
   original `POST .../payments` flow) are unaffected -- they default
   straight to `VERIFIED`, since staff already confirmed the money arrived
   before recording it.
+
+### Client isolation (different clients of the same Kravio org)
+
+RLS separates Kravio's whole business from anyone else's, but it does
+**not** separate one Kravio client from another -- they're all members of
+the same Organization. That became a real problem once clients could
+register themselves and create their own projects: without something
+else in place, any client could see any other client's briefs, prices,
+and payments.
+
+- `Project.clientOwnerId` (nullable `User.id`) is the fix -- an app-level
+  ownership layer *inside* the tenant boundary RLS already provides. Set
+  automatically when a client creates their own project; null for
+  staff-created ones (still supported) until explicitly assigned.
+- `apps/api/src/common/client-project-access.ts`'s `assertClientOwnsProject()`
+  is the enforcement point -- called at the top of every client-reachable
+  path that touches a specific project (`GET /projects/:id`, briefs, tasks,
+  payment claims, ...). Staff roles pass through unrestricted. Fails
+  closed with `404`, same philosophy as RLS itself: a client gets no signal
+  that a project they can't access even exists.
+- `GET /projects` is role-aware: staff see every project in the org
+  (unchanged); a client sees only `WHERE clientOwnerId = <themselves>`.
+  `GET /projects/summary` is staff-only outright -- an org-wide aggregate
+  was never meant for a single client's eyes.
+- Staff can link a legacy (unowned) project to a client via
+  `PATCH /projects/:id` with `{ clientOwnerId }`.
+- **Self-registration** — `POST /auth/client-signup` (`@Public()`): body
+  `{ name, email, password }`, no invite needed. Unlike `/auth/signup`
+  (which spins up a brand-new Organization per call), this joins the one,
+  already-known `KRAVIO_ORGANIZATION_ID` org as `CLIENT_APPROVER` --
+  this deployment is Kravio's own single-tenant instance, not resold
+  multi-agency SaaS, so there's one fixed org to join, set once via env
+  var. The endpoint fails loudly if that's unset rather than guessing.
 
 ## Dev test UI
 
@@ -438,6 +472,15 @@ there, see below.
   sending an invoice syncs `Project.totalPriceIdr`/`minDpPercent`, and a
   client's payment claim stays `PENDING` (excluded from `totalPaidIdr`)
   until staff verifies it -- including that a rejected claim never counts.
+- `test/client-isolation.e2e-spec.ts` — `POST /auth/client-signup` produces
+  a working login in the configured org (rejects a duplicate email); a
+  self-registered client's `POST /projects` sets `clientOwnerId`
+  automatically and they can brief it; client A gets `404` (not `403`) --
+  reading, listing, briefing, task access, approve/request-revision,
+  payment claims -- on anything belonging to client B; staff are
+  unaffected by any of this; `GET /projects/summary` is staff-only; staff
+  can `PATCH` a legacy project's `clientOwnerId` to make it visible to a
+  specific client.
 
 **No API keys needed to run any of this.** `AnthropicProvider` and
 `GeminiProvider` still get constructed by Nest's DI container in these

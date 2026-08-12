@@ -116,6 +116,15 @@ model Project {
   // whenever an invoice is sent; nullable because a project can go a long
   // time before it has a price at all.
   minDpPercent   Int?          @map("min_dp_percent")
+  // Which CLIENT_APPROVER this project belongs to -- the isolation boundary
+  // *between different clients of the same agency*, layered on top of (not
+  // instead of) RLS's organization-level tenant isolation. Null for
+  // staff-created projects (today's original flow, still supported); set
+  // automatically when a client self-creates a project. A client's reads
+  // are filtered to clientOwnerId = themselves (see
+  // assertClientOwnsProject() in common/client-project-access.ts); staff
+  // are never restricted by this field.
+  clientOwnerId  String?       @map("client_owner_id") @db.Uuid
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
@@ -126,6 +135,7 @@ model Project {
   invoices     Invoice[]
 
   @@index([organizationId])
+  @@index([clientOwnerId])
   @@map("projects")
 }
 

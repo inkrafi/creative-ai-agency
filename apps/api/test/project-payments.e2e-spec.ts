@@ -49,7 +49,7 @@ describe("Project payments (e2e)", () => {
 
     const email = `${randomUUID()}@test.local`;
     const passwordHash = await argon2.hash("password123");
-    await prisma.runAsTenant(organizationId, (tx) =>
+    const user = await prisma.runAsTenant(organizationId, (tx) =>
       tx.user.create({ data: { organizationId, email, passwordHash, name: `A ${role}`, role } }),
     );
     const login = await request(app.getHttpServer())
@@ -57,7 +57,7 @@ describe("Project payments (e2e)", () => {
       .send({ email, password: "password123" })
       .expect(201);
 
-    return { adminToken, token: login.body.accessToken as string };
+    return { adminToken, token: login.body.accessToken as string, userId: user.id };
   }
 
   async function createProject(token: string) {
@@ -147,12 +147,12 @@ describe("Project payments (e2e)", () => {
   });
 
   it("CLIENT_VIEWER can read payment status but cannot record a payment", async () => {
-    const { adminToken, token: viewerToken } = await signupWithRole(Role.CLIENT_VIEWER);
+    const { adminToken, token: viewerToken, userId: viewerId } = await signupWithRole(Role.CLIENT_VIEWER);
     const project = await createProject(adminToken);
     await request(app.getHttpServer())
       .patch(`/projects/${project.id}`)
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ totalPriceIdr: 1_000_000 })
+      .send({ totalPriceIdr: 1_000_000, clientOwnerId: viewerId })
       .expect(200);
 
     await request(app.getHttpServer())

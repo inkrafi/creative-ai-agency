@@ -32,13 +32,13 @@ export class TasksController {
   }
 
   @Get()
-  findAllForProject(@Query("projectId") projectId: string) {
-    return this.tasksService.findAllForProject(projectId);
+  findAllForProject(@Query("projectId") projectId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.findAllForProject(projectId, user);
   }
 
   @Get(":id")
-  findOne(@Param("id") id: string) {
-    return this.tasksService.findOne(id);
+  findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.findOneForClient(id, user);
   }
 
   @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR)
@@ -70,12 +70,12 @@ export class TasksController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: RequestRevisionDto,
   ) {
-    return this.tasksService.requestRevision(id, user.userId, dto);
+    return this.tasksService.requestRevision(id, user, dto);
   }
 
   @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR, Role.CLIENT_APPROVER)
   @Post(":id/approve")
-  approve(@Param("id") id: string) {
-    return this.tasksService.approve(id);
+  approve(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.approve(id, user);
   }
 }

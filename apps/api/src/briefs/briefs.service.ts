@@ -1,11 +1,12 @@
 import { HttpException, HttpStatus, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { GenerationJobStatus, Prisma, TaskStatus } from "@prisma/client";
+import { GenerationJobStatus, Prisma, Role, TaskStatus } from "@prisma/client";
 import { Observable } from "rxjs";
 import { MessageEvent } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { ModelRouterService } from "../ai/model-router.service";
 import { CreditLedgerService } from "../generation/credit-ledger.service";
 import { AuthenticatedUser } from "../common/decorators/current-user.decorator";
+import { assertClientOwnsProject } from "../common/client-project-access";
 import { CreateBriefDto } from "./dto/create-brief.dto";
 import { BRIEF_SYSTEM_PROMPTS, formatBriefPrompt, validateBriefContext } from "./brief-context";
 import {
@@ -35,6 +36,10 @@ export class BriefsService {
    * -> Task -> Asset(versions).
    */
   async create(user: AuthenticatedUser, dto: CreateBriefDto) {
+    // A client can only ever file a brief against their own project --
+    // otherwise nothing stops CLIENT_APPROVER A from writing a brief onto
+    // CLIENT_APPROVER B's project inside the same Kravio org.
+    await assertClientOwnsProject(this.prisma, dto.projectId, user);
     validateBriefContext(dto.type, dto.context);
     const instructions = formatBriefPrompt(dto.type, dto.context);
 
@@ -67,9 +72,18 @@ export class BriefsService {
     });
   }
 
-  findAll(projectId?: string) {
+  async findAll(user: AuthenticatedUser, projectId?: string) {
+    const isClient = user.role === Role.CLIENT_APPROVER || user.role === Role.CLIENT_VIEWER;
+    if (isClient && projectId) {
+      await assertClientOwnsProject(this.prisma, projectId, user);
+    }
     return this.prisma.client.brief.findMany({
-      where: projectId ? { projectId } : undefined,
+      where: {
+        projectId,
+        // Unfiltered project id (no projectId query param) for a client:
+        // still scope to only their own projects' briefs, never the org's.
+        ...(isClient && !projectId ? { project: { clientOwnerId: user.userId } } : {}),
+      },
       orderBy: { createdAt: "desc" },
     });
   }
@@ -77,6 +91,13 @@ export class BriefsService {
   async findOne(id: string) {
     const brief = await this.prisma.client.brief.findUnique({ where: { id } });
     if (!brief) throw new NotFoundException("Brief not found");
+    return brief;
+  }
+
+  /** The client-reachable counterpart to findOne() -- see ProjectsService.findOneForClient(). */
+  async findOneForClient(id: string, user: AuthenticatedUser) {
+    const brief = await this.findOne(id);
+    await assertClientOwnsProject(this.prisma, brief.projectId, user);
     return brief;
   }
 

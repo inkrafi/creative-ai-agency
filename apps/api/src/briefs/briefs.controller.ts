@@ -21,13 +21,13 @@ export class BriefsController {
   }
 
   @Get()
-  findAll(@Query("projectId") projectId?: string) {
-    return this.briefsService.findAll(projectId);
+  findAll(@CurrentUser() user: AuthenticatedUser, @Query("projectId") projectId?: string) {
+    return this.briefsService.findAll(user, projectId);
   }
 
   @Get(":id")
-  findOne(@Param("id") id: string) {
-    return this.briefsService.findOne(id);
+  findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.briefsService.findOneForClient(id, user);
   }
 
   @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR)

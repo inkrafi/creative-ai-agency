@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { ConflictException, Injectable, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import * as argon2 from "argon2";
 import { randomUUID } from "crypto";
@@ -6,6 +6,7 @@ import { Role } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthBypassPrismaService } from "../prisma/auth-bypass-prisma.service";
 import { SignupDto } from "./dto/signup.dto";
+import { ClientSignupDto } from "./dto/client-signup.dto";
 import { LoginDto } from "./dto/login.dto";
 
 @Injectable()
@@ -46,6 +47,51 @@ export class AuthService {
     return this.issueToken({
       userId: user.id,
       tenantId: organization.id,
+      role: user.role,
+      email: user.email,
+    });
+  }
+
+  /**
+   * Self-service client registration -- joins the one, already-known
+   * Kravio org (KRAVIO_ORGANIZATION_ID) as CLIENT_APPROVER, instead of
+   * signup()'s "spin up a brand-new Organization" behavior. There's no
+   * invite token / new-tenant flow here: this deployment is Kravio's own
+   * single-tenant instance, not resold multi-agency SaaS, so the target
+   * org is fixed config, not something the request chooses.
+   *
+   * Fails loudly if unconfigured rather than silently guessing an org --
+   * picking the wrong org would put a client in the wrong client's
+   * workspace, which client-project-access.ts's isolation model treats as
+   * a hard boundary, not a preference.
+   */
+  async clientSignup(dto: ClientSignupDto) {
+    const organizationId = process.env.KRAVIO_ORGANIZATION_ID;
+    if (!organizationId) {
+      throw new InternalServerErrorException("Client self-signup isn't configured yet.");
+    }
+
+    if (await this.authBypass.emailExists(dto.email)) {
+      throw new ConflictException("Email already in use");
+    }
+
+    const passwordHash = await argon2.hash(dto.password);
+
+    const user = await this.prisma.runAsTenant(organizationId, (tx) =>
+      tx.user.create({
+        data: {
+          organizationId,
+          email: dto.email,
+          passwordHash,
+          name: dto.name,
+          role: Role.CLIENT_APPROVER,
+        },
+      }),
+    );
+
+    return this.issueToken({
+      userId: user.id,
+      tenantId: organizationId,
       role: user.role,
       email: user.email,
     });

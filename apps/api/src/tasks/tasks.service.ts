@@ -1,6 +1,8 @@
 import { BadRequestException, HttpException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
 import { TaskStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { AuthenticatedUser } from "../common/decorators/current-user.decorator";
+import { assertClientOwnsProject } from "../common/client-project-access";
 import { CreateTaskDto } from "./dto/create-task.dto";
 import { UpdateTaskDto } from "./dto/update-task.dto";
 import { SubmitForReviewDto } from "./dto/submit-for-review.dto";
@@ -31,7 +33,8 @@ export class TasksService {
     });
   }
 
-  findAllForProject(projectId: string) {
+  async findAllForProject(projectId: string, user: AuthenticatedUser) {
+    await assertClientOwnsProject(this.prisma, projectId, user);
     return this.prisma.client.task.findMany({
       where: { projectId },
       orderBy: { createdAt: "desc" },
@@ -51,6 +54,13 @@ export class TasksService {
       },
     });
     if (!task) throw new NotFoundException("Task not found");
+    return task;
+  }
+
+  /** The client-reachable counterpart to findOne() -- see ProjectsService.findOneForClient(). */
+  async findOneForClient(id: string, user: AuthenticatedUser) {
+    const task = await this.findOne(id);
+    await assertClientOwnsProject(this.prisma, task.projectId, user);
     return task;
   }
 
@@ -120,8 +130,9 @@ export class TasksService {
    * Logs a RevisionRequest (round = the new revisionsUsed value) alongside
    * the status flip -- see its schema comment for why `note` is required.
    */
-  async requestRevision(id: string, userId: string, dto: RequestRevisionDto) {
+  async requestRevision(id: string, user: AuthenticatedUser, dto: RequestRevisionDto) {
     const task = await this.findOne(id);
+    await assertClientOwnsProject(this.prisma, task.projectId, user);
     if (task.status !== TaskStatus.IN_REVIEW) {
       throw new BadRequestException("Only a task currently in review can have a revision requested.");
     }
@@ -141,7 +152,7 @@ export class TasksService {
           taskId: id,
           note: dto.note,
           round,
-          createdById: userId,
+          createdById: user.userId,
         },
       });
       return tx.task.update({
@@ -156,8 +167,9 @@ export class TasksService {
   }
 
   /** Client signs off -- the final, human-made deliverable is accepted. */
-  async approve(id: string) {
+  async approve(id: string, user: AuthenticatedUser) {
     const task = await this.findOne(id);
+    await assertClientOwnsProject(this.prisma, task.projectId, user);
     if (task.status !== TaskStatus.IN_REVIEW) {
       throw new BadRequestException("Only a task currently in review can be approved.");
     }

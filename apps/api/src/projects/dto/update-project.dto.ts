@@ -1,5 +1,5 @@
 import { PartialType } from "@nestjs/mapped-types";
-import { IsEnum, IsInt, IsOptional, Min } from "class-validator";
+import { IsEnum, IsInt, IsOptional, IsUUID, Min } from "class-validator";
 import { ProjectStatus } from "@prisma/client";
 import { CreateProjectDto } from "./create-project.dto";
 
@@ -14,4 +14,12 @@ export class UpdateProjectDto extends PartialType(CreateProjectDto) {
   @IsInt()
   @Min(0)
   totalPriceIdr?: number;
+
+  // Staff-only "assign a client" action -- links a legacy project (created
+  // before self-service existed, or created by staff on a client's behalf)
+  // to the CLIENT_APPROVER who should now see it. See
+  // client-project-access.ts for what this field gates.
+  @IsOptional()
+  @IsUUID()
+  clientOwnerId?: string;
 }

@@ -53,7 +53,7 @@ describe("Task review flow (e2e)", () => {
       .send({ projectId: project.body.id, title: "Landing page copy" })
       .expect(201);
 
-    return task.body as { id: string; status: string; maxRevisions: number; revisionsUsed: number };
+    return task.body as { id: string; projectId: string; status: string; maxRevisions: number; revisionsUsed: number };
   }
 
   function submitForReview(token: string, taskId: string, url = "https://staging.example.test/preview") {
@@ -231,7 +231,7 @@ describe("Task review flow (e2e)", () => {
       // seeded directly -- the point here is the guard, not user CRUD.
       const email = `${randomUUID()}@test.local`;
       const passwordHash = await argon2.hash("password123");
-      await prisma.runAsTenant(organizationId, (tx) =>
+      const user = await prisma.runAsTenant(organizationId, (tx) =>
         tx.user.create({ data: { organizationId, email, passwordHash, name: `A ${role}`, role } }),
       );
 
@@ -240,7 +240,7 @@ describe("Task review flow (e2e)", () => {
         .send({ email, password: "password123" })
         .expect(201);
 
-      return { adminToken, token: login.body.accessToken as string };
+      return { adminToken, token: login.body.accessToken as string, userId: user.id };
     }
 
     it("PATCH cannot set status -- the field is rejected outright", async () => {
@@ -284,8 +284,13 @@ describe("Task review flow (e2e)", () => {
     });
 
     it("CLIENT_VIEWER can read tasks but cannot create, delete, approve or request revisions", async () => {
-      const { adminToken, token: viewerToken } = await signupWithRole(Role.CLIENT_VIEWER);
+      const { adminToken, token: viewerToken, userId: viewerId } = await signupWithRole(Role.CLIENT_VIEWER);
       const task = await createTask(adminToken);
+      await request(app.getHttpServer())
+        .patch(`/projects/${task.projectId}`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ clientOwnerId: viewerId })
+        .expect(200);
       await submitForReview(adminToken, task.id).expect(201);
 
       // Reading is the whole point of the viewer role -- that must still work.
@@ -310,8 +315,13 @@ describe("Task review flow (e2e)", () => {
     });
 
     it("CLIENT_APPROVER can approve, but cannot create or delete work", async () => {
-      const { adminToken, token: approverToken } = await signupWithRole(Role.CLIENT_APPROVER);
+      const { adminToken, token: approverToken, userId: approverId } = await signupWithRole(Role.CLIENT_APPROVER);
       const task = await createTask(adminToken);
+      await request(app.getHttpServer())
+        .patch(`/projects/${task.projectId}`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ clientOwnerId: approverId })
+        .expect(200);
       await submitForReview(adminToken, task.id).expect(201);
 
       await request(app.getHttpServer())

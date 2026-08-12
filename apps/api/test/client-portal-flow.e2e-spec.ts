@@ -84,7 +84,7 @@ describe("Client portal flow (e2e)", () => {
 
     const email = `${randomUUID()}@test.local`;
     const passwordHash = await argon2.hash("password123");
-    await prisma.runAsTenant(organizationId, (tx) =>
+    const user = await prisma.runAsTenant(organizationId, (tx) =>
       tx.user.create({ data: { organizationId, email, passwordHash, name: `A ${role}`, role } }),
     );
     const login = await request(app.getHttpServer())
@@ -92,7 +92,16 @@ describe("Client portal flow (e2e)", () => {
       .send({ email, password: "password123" })
       .expect(201);
 
-    return { adminToken, token: login.body.accessToken as string, organizationId };
+    return { adminToken, token: login.body.accessToken as string, organizationId, userId: user.id };
+  }
+
+  /** Staff-created projects have no clientOwnerId by default -- tests that need a CLIENT_* role to actually access one must assign it first. */
+  function assignClient(adminToken: string, projectId: string, clientUserId: string) {
+    return request(app.getHttpServer())
+      .patch(`/projects/${projectId}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ clientOwnerId: clientUserId })
+      .expect(200);
   }
 
   async function grantCredit(organizationId: string, amountMicros: number) {
@@ -185,8 +194,9 @@ describe("Client portal flow (e2e)", () => {
 
   describe("brief submission by a client", () => {
     it("CLIENT_APPROVER can submit a brief", async () => {
-      const { adminToken, token: approverToken } = await signupWithRole(Role.CLIENT_APPROVER);
+      const { adminToken, token: approverToken, userId } = await signupWithRole(Role.CLIENT_APPROVER);
       const project = await createProject(adminToken);
+      await assignClient(adminToken, project.id, userId);
       await createBrief(approverToken, project.id);
     });
 
@@ -262,8 +272,9 @@ describe("Client portal flow (e2e)", () => {
 
   describe("invoices", () => {
     it("staff sending an invoice sets the project's price + min DP; a client cannot send one", async () => {
-      const { adminToken, token: approverToken } = await signupWithRole(Role.CLIENT_APPROVER);
+      const { adminToken, token: approverToken, userId } = await signupWithRole(Role.CLIENT_APPROVER);
       const project = await createProject(adminToken);
+      await assignClient(adminToken, project.id, userId);
 
       await request(app.getHttpServer())
         .post(`/projects/${project.id}/invoices`)
@@ -295,8 +306,9 @@ describe("Client portal flow (e2e)", () => {
   });
 
   describe("client-submitted payment claims", () => {
-    async function pricedProject(adminToken: string, amountIdr = 10_000_000) {
+    async function pricedProject(adminToken: string, amountIdr = 10_000_000, clientUserId?: string) {
       const project = await createProject(adminToken);
+      if (clientUserId) await assignClient(adminToken, project.id, clientUserId);
       await request(app.getHttpServer())
         .patch(`/projects/${project.id}`)
         .set("Authorization", `Bearer ${adminToken}`)
@@ -313,8 +325,8 @@ describe("Client portal flow (e2e)", () => {
     }
 
     it("a client's claim is PENDING and does not count toward totalPaidIdr until verified", async () => {
-      const { adminToken, token: approverToken } = await signupWithRole(Role.CLIENT_APPROVER);
-      const project = await pricedProject(adminToken);
+      const { adminToken, token: approverToken, userId } = await signupWithRole(Role.CLIENT_APPROVER);
+      const project = await pricedProject(adminToken, 10_000_000, userId);
 
       const claimRes = await claimPayment(approverToken, project.id, {
         type: "DP",
@@ -338,8 +350,8 @@ describe("Client portal flow (e2e)", () => {
     });
 
     it("a rejected claim never counts, even after the decision is recorded", async () => {
-      const { adminToken, token: approverToken } = await signupWithRole(Role.CLIENT_APPROVER);
-      const project = await pricedProject(adminToken);
+      const { adminToken, token: approverToken, userId } = await signupWithRole(Role.CLIENT_APPROVER);
+      const project = await pricedProject(adminToken, 10_000_000, userId);
 
       const claimRes = await claimPayment(approverToken, project.id, {
         type: "DP",
@@ -370,8 +382,9 @@ describe("Client portal flow (e2e)", () => {
     });
 
     it("rejects a claim before a price is set, same rule as staff-direct recording", async () => {
-      const { adminToken, token: approverToken } = await signupWithRole(Role.CLIENT_APPROVER);
+      const { adminToken, token: approverToken, userId } = await signupWithRole(Role.CLIENT_APPROVER);
       const project = await createProject(adminToken);
+      await assignClient(adminToken, project.id, userId);
       await claimPayment(approverToken, project.id, {
         type: "DP",
         amountIdr: 1_000_000,

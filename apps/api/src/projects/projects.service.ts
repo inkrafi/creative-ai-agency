@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { Role } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { EmailService } from "../notifications/email.service";
+import { AuthenticatedUser } from "../common/decorators/current-user.decorator";
+import { assertClientOwnsProject } from "../common/client-project-access";
 import { CreateProjectDto } from "./dto/create-project.dto";
 import { UpdateProjectDto } from "./dto/update-project.dto";
 import { CreatePaymentDto } from "./dto/create-payment.dto";
@@ -34,15 +36,32 @@ export class ProjectsService {
   // None of these methods filter by organizationId themselves -- RLS does
   // that at the DB layer for every statement issued through prisma.client.
   // A missing `where: { organizationId }` here is not a tenant-isolation bug.
+  // Isolation *between different clients in the same org* is a separate,
+  // app-level concern -- see client-project-access.ts.
 
-  create(organizationId: string, dto: CreateProjectDto) {
+  /**
+   * clientOwnerId is set automatically for a client-created project, never
+   * client-supplied -- a client can't choose to create a project "owned"
+   * by someone else. Staff-created projects (unchanged from before
+   * self-service existed) stay unowned until explicitly assigned (see
+   * update()'s clientOwnerId handling).
+   */
+  create(organizationId: string, dto: CreateProjectDto, user: AuthenticatedUser) {
+    const isClient = user.role === Role.CLIENT_APPROVER;
     return this.prisma.client.project.create({
-      data: { organizationId, name: dto.name, description: dto.description },
+      data: {
+        organizationId,
+        name: dto.name,
+        description: dto.description,
+        clientOwnerId: isClient ? user.userId : undefined,
+      },
     });
   }
 
-  async findAll() {
+  async findAll(user: AuthenticatedUser) {
+    const isClient = user.role === Role.CLIENT_APPROVER || user.role === Role.CLIENT_VIEWER;
     const projects = await this.prisma.client.project.findMany({
+      where: isClient ? { clientOwnerId: user.userId } : undefined,
       orderBy: { createdAt: "desc" },
       include: { payments: true },
     });
@@ -98,6 +117,16 @@ export class ProjectsService {
       totalPaidIdr,
       paymentStatus: paymentStatusFor(project.totalPriceIdr, totalPaidIdr),
     };
+  }
+
+  /**
+   * The client-reachable counterpart to findOne() -- adds the ownership
+   * check before delegating. findOne() itself stays as-is (many internal
+   * staff-only callers below have no user in scope at all).
+   */
+  async findOneForClient(id: string, user: AuthenticatedUser) {
+    await assertClientOwnsProject(this.prisma, id, user);
+    return this.findOne(id);
   }
 
   async update(id: string, dto: UpdateProjectDto) {
@@ -156,7 +185,8 @@ export class ProjectsService {
    * meaning (whoever is asserting this payment happened) is the same one
    * recordPayment() already captures.
    */
-  async claimPayment(projectId: string, clientUserId: string, dto: ClaimPaymentDto) {
+  async claimPayment(projectId: string, user: AuthenticatedUser, dto: ClaimPaymentDto) {
+    await assertClientOwnsProject(this.prisma, projectId, user);
     const project = await this.findOne(projectId);
     if (project.totalPriceIdr === null) {
       throw new BadRequestException("Set the project's totalPriceIdr before recording a payment against it.");
@@ -170,7 +200,7 @@ export class ProjectsService {
         amountIdr: dto.amountIdr,
         method: dto.method,
         note: dto.note,
-        recordedById: clientUserId,
+        recordedById: user.userId,
         proofImageUrl: dto.proofImageBase64,
         verificationStatus: "PENDING",
       },
@@ -194,7 +224,8 @@ export class ProjectsService {
     return this.findOne(projectId);
   }
 
-  async getInvoices(projectId: string) {
+  async getInvoices(projectId: string, user: AuthenticatedUser) {
+    await assertClientOwnsProject(this.prisma, projectId, user);
     return this.prisma.client.invoice.findMany({
       where: { projectId },
       orderBy: { createdAt: "desc" },
@@ -211,7 +242,7 @@ export class ProjectsService {
    * unset) does not fail the request -- the invoice still exists and is
    * visible in-portal.
    */
-  async sendInvoice(projectId: string, staffUserId: string, dto: CreateInvoiceDto) {
+  async sendInvoice(projectId: string, user: AuthenticatedUser, dto: CreateInvoiceDto) {
     const project = await this.findOne(projectId);
 
     const invoice = await this.prisma.client.invoice.create({
@@ -221,7 +252,7 @@ export class ProjectsService {
         briefId: dto.briefId,
         amountIdr: dto.amountIdr,
         minDpPercent: dto.minDpPercent,
-        createdById: staffUserId,
+        createdById: user.userId,
       },
     });
 
@@ -230,14 +261,22 @@ export class ProjectsService {
       data: { totalPriceIdr: dto.amountIdr, minDpPercent: dto.minDpPercent },
     });
 
-    const recipients = await this.prisma.client.user.findMany({
-      where: { role: Role.CLIENT_APPROVER },
-      select: { email: true, name: true },
-    });
+    // Only the project's own client -- not every CLIENT_APPROVER in the
+    // org. Under the client-isolation model (see client-project-access.ts)
+    // emailing every client about any invoice would leak one client's
+    // pricing to every other client in the same Kravio org. A staff-created
+    // project with no clientOwnerId assigned yet has no one to email --
+    // that's expected, not a bug (see UpdateProjectDto's clientOwnerId).
+    const recipient = project.clientOwnerId
+      ? await this.prisma.client.user.findUnique({
+          where: { id: project.clientOwnerId },
+          select: { email: true, name: true },
+        })
+      : null;
 
-    let anySent = false;
-    for (const recipient of recipients) {
-      const sent = await this.email.sendInvoiceEmail({
+    let sent = false;
+    if (recipient) {
+      sent = await this.email.sendInvoiceEmail({
         to: recipient.email,
         clientName: recipient.name,
         projectName: project.name,
@@ -245,13 +284,12 @@ export class ProjectsService {
         minDpPercent: dto.minDpPercent ?? null,
         portalUrl: process.env.CLIENT_PORTAL_URL ?? "http://localhost:3002",
       });
-      anySent = anySent || sent;
     }
 
-    if (anySent) {
+    if (sent) {
       await this.prisma.client.invoice.update({ where: { id: invoice.id }, data: { emailSentAt: new Date() } });
     }
 
-    return this.getInvoices(projectId);
+    return this.getInvoices(projectId, user);
   }
 }
