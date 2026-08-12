@@ -57,6 +57,17 @@ enum PaymentType {
   OTHER
 }
 
+/// Client-submitted proof-of-payment claims start PENDING and don't count
+/// toward a project's paid total until a staff member reviews the image
+/// against what was expected. Staff-direct entries (the original flow --
+/// staff already confirmed the money arrived before recording it) skip this
+/// entirely and default straight to VERIFIED.
+enum PaymentVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
 /// A tenant. Every other tenant-scoped table carries an organization_id
 /// column that Postgres RLS policies filter on (see migrations/0002_rls_policies).
 model Organization {
@@ -100,6 +111,11 @@ model Project {
   // price is usually agreed after the initial brief discussion, not known
   // at project creation.
   totalPriceIdr  Int?          @map("total_price_idr")
+  // Informational only -- shown as plain text on the invoice ("minimum DP:
+  // X%"), never enforced against what a client actually submits. Set
+  // whenever an invoice is sent; nullable because a project can go a long
+  // time before it has a price at all.
+  minDpPercent   Int?          @map("min_dp_percent")
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
@@ -107,6 +123,7 @@ model Project {
   tasks        Task[]
   briefs       Brief[]
   payments     Payment[]
+  invoices     Invoice[]
 
   @@index([organizationId])
   @@map("projects")
@@ -131,12 +148,20 @@ model Brief {
   type           BriefType
   context        Json
   instructions   String
+  // Set by BriefsService.suggestPrice() -- an AI-generated starting point
+  // for staff, never applied to Project.totalPriceIdr automatically. Staff
+  // reviews/edits the number before it becomes a real invoice; see
+  // ProjectsService's invoice-sending flow, which is what actually sets
+  // the project's price.
+  aiSuggestedPriceIdr Int?    @map("ai_suggested_price_idr")
+  aiPriceReasoning    String? @map("ai_price_reasoning")
   createdById    String    @map("created_by_id") @db.Uuid
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  project Project @relation(fields: [projectId], references: [id])
-  tasks   Task[]
+  project  Project   @relation(fields: [projectId], references: [id])
+  tasks    Task[]
+  invoices Invoice[]
 
   @@index([organizationId])
   @@index([projectId])
@@ -271,12 +296,54 @@ model Payment {
   note           String?
   recordedById   String      @map("recorded_by_id") @db.Uuid
   createdAt      DateTime    @default(now()) @map("created_at")
+  // Data-URI image the client attached as proof when self-submitting a
+  // claim (ProjectsService.claimPayment) -- null for staff-direct entries,
+  // which have no claim step to prove. Stored inline in Postgres rather
+  // than object storage for now: no cloud storage is wired up anywhere in
+  // this codebase yet, and this keeps the feature shippable without adding
+  // that dependency. Known tradeoff (DB bloat on large images) -- worth
+  // moving to real object storage (S3/R2) before this sees heavy volume.
+  proofImageUrl      String?                   @map("proof_image_url")
+  // VERIFIED by default: a staff-direct entry means staff already confirmed
+  // the money arrived before recording it, so there's nothing to verify.
+  // Only claimPayment() (the client-facing path) creates PENDING rows.
+  verificationStatus PaymentVerificationStatus @default(VERIFIED) @map("verification_status")
+  verifiedById       String?                   @map("verified_by_id") @db.Uuid
+  verifiedAt         DateTime?                 @map("verified_at")
 
   project Project @relation(fields: [projectId], references: [id])
 
   @@index([organizationId])
   @@index([projectId])
   @@map("payments")
+}
+
+/// A historical record of a priced-and-sent invoice -- kept as its own
+/// table (not just fields on Project) because it's a snapshot: if the price
+/// is corrected later with a new invoice, the old amount stays on record
+/// rather than being overwritten, and the client portal needs something
+/// concrete to list/display, not just a mutating number. Sending one is
+/// also what actually sets Project.totalPriceIdr/minDpPercent -- see
+/// ProjectsService.sendInvoice().
+model Invoice {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  projectId      String    @map("project_id") @db.Uuid
+  briefId        String?   @map("brief_id") @db.Uuid
+  amountIdr      Int       @map("amount_idr")
+  minDpPercent   Int?      @map("min_dp_percent")
+  createdById    String    @map("created_by_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+  // Null if the email send failed or Resend isn't configured -- the invoice
+  // still exists and is visible in-portal either way; see EmailService.
+  emailSentAt    DateTime? @map("email_sent_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+  brief   Brief?  @relation(fields: [briefId], references: [id])
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@map("invoices")
 }
 
 /// One AI generation call. Exists from Phase 1 purely for instrumentation --

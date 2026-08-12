@@ -3,6 +3,9 @@ import { ProjectsService } from "./projects.service";
 import { CreateProjectDto } from "./dto/create-project.dto";
 import { UpdateProjectDto } from "./dto/update-project.dto";
 import { CreatePaymentDto } from "./dto/create-payment.dto";
+import { ClaimPaymentDto } from "./dto/claim-payment.dto";
+import { VerifyPaymentDto } from "./dto/verify-payment.dto";
+import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { CurrentUser, AuthenticatedUser } from "../common/decorators/current-user.decorator";
 import { Roles } from "../common/decorators/roles.decorator";
 import { Role } from "@prisma/client";
@@ -59,5 +62,47 @@ export class ProjectsController {
     @Body() dto: CreatePaymentDto,
   ) {
     return this.projectsService.recordPayment(id, user.userId, dto);
+  }
+
+  // The client-facing counterpart to recordPayment() above -- creates a
+  // PENDING claim, not a confirmed one. Only CLIENT_APPROVER: viewing is
+  // not deciding, same rule tasks.controller.ts already follows.
+  @Roles(Role.CLIENT_APPROVER)
+  @Post(":id/payments/claim")
+  claimPayment(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ClaimPaymentDto,
+  ) {
+    return this.projectsService.claimPayment(id, user.userId, dto);
+  }
+
+  // Staff-only: approving/rejecting a client's claimed payment.
+  @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR)
+  @Patch(":id/payments/:paymentId/verify")
+  verifyPayment(
+    @Param("id") id: string,
+    @Param("paymentId") paymentId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: VerifyPaymentDto,
+  ) {
+    return this.projectsService.verifyPayment(id, paymentId, user.userId, dto);
+  }
+
+  // Open to every role, like other reads -- both portals need invoice history.
+  @Get(":id/invoices")
+  getInvoices(@Param("id") id: string) {
+    return this.projectsService.getInvoices(id);
+  }
+
+  // Staff-only: this is what actually sets the project's official price.
+  @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR)
+  @Post(":id/invoices")
+  sendInvoice(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateInvoiceDto,
+  ) {
+    return this.projectsService.sendInvoice(id, user.userId, dto);
   }
 }

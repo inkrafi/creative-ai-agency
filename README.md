@@ -169,6 +169,51 @@ an agency already tracks this outside any system. Lives on
   yet) / `UNPAID` / `PARTIAL` / `PAID`, computed fresh on every read in
   `ProjectsService.findOne()`, never stored.
 
+## Client accounts, AI pricing, invoices & payment verification
+
+Backend support for clients acting for themselves instead of staff relaying
+their decisions -- no dedicated client-portal frontend exists yet (that's
+`apps/client`, still to come), but every endpoint below is real and
+role-gated today.
+
+- **Client accounts** — `POST /users` (`AGENCY_ADMIN` only): body
+  `{ email, name, role }`, `role` restricted to `CLIENT_APPROVER` /
+  `CLIENT_VIEWER`. Generates a random temporary password server-side and
+  returns it **once** in the response — never emailed (that would be the
+  actual security anti-pattern here); staff relay it out-of-band the same
+  way every other client coordination already happens in this system.
+- **Brief submission opens to clients** — `POST /briefs` now also accepts
+  `CLIENT_APPROVER` (was staff-only). `CLIENT_VIEWER` stays excluded:
+  viewing is not deciding, the same rule the review-cycle endpoints follow.
+- **AI price suggestion** — `POST /briefs/:id/suggest-price` (staff-only).
+  A synchronous (not SSE) call through the same `ModelRouterService` +
+  hold-then-settle credit flow as draft generation, asking the model to
+  weigh Indonesian market rate against the brief's complexity. Returns
+  `{ priceIdr, reasoning }` and persists both onto the `Brief` row. This is
+  a *suggestion* only — it never touches `Project.totalPriceIdr` on its
+  own; staff review/edit the number before sending an invoice. Malformed
+  model output fails loudly (`502`), never silently stored.
+- **Invoices** — `POST /projects/:id/invoices` (staff-only): body
+  `{ amountIdr, minDpPercent?, briefId? }`. This is the action that
+  actually sets `Project.totalPriceIdr`/`minDpPercent` (kept as its own
+  `Invoice` row, not just fields on `Project`, so a later re-invoice at a
+  corrected price doesn't erase the prior amount). Emails every
+  `CLIENT_APPROVER` in the org via Resend, best-effort — a failed or
+  skipped send (no `RESEND_API_KEY` set, or no client account provisioned
+  yet) doesn't fail the request; the invoice still exists.
+  `GET /projects/:id/invoices` lists history, open to all roles.
+- **Client-submitted payment claims** — `POST /projects/:id/payments/claim`
+  (`CLIENT_APPROVER` only): same shape as staff's `POST .../payments` plus
+  `proofImageBase64` (stored inline as a data URI -- no object storage
+  wired up yet, a known tradeoff). Creates a `Payment` with
+  `verificationStatus: PENDING`, which does **not** count toward
+  `totalPaidIdr` until staff calls
+  `PATCH /projects/:id/payments/:paymentId/verify` with
+  `{ decision: "VERIFIED" | "REJECTED" }`. Staff-direct entries (the
+  original `POST .../payments` flow) are unaffected -- they default
+  straight to `VERIFIED`, since staff already confirmed the money arrived
+  before recording it.
+
 ## Dev test UI
 
 Open **http://localhost:3000/** after `pnpm dev` — a single static HTML page
@@ -271,6 +316,18 @@ curl -X POST localhost:3000/projects/<projectId>/payments -H "Authorization: Bea
   -d '{"type":"DP","amountIdr":4000000,"method":"Transfer BCA","note":"Uang muka 40%"}'
 curl -X POST localhost:3000/projects/<projectId>/payments -H "Authorization: Bearer <accessToken>" -H "Content-Type: application/json" \
   -d '{"type":"PELUNASAN","amountIdr":6000000,"method":"Cash"}'
+
+# Provision a client login (admin token), get an AI price suggestion on
+# their brief, send the invoice, then have the client claim a DP with proof
+curl -X POST localhost:3000/users -H "Authorization: Bearer <adminAccessToken>" -H "Content-Type: application/json" \
+  -d '{"email":"klien@example.com","name":"Klien","role":"CLIENT_APPROVER"}'
+curl -X POST localhost:3000/briefs/<briefId>/suggest-price -H "Authorization: Bearer <adminAccessToken>"
+curl -X POST localhost:3000/projects/<projectId>/invoices -H "Authorization: Bearer <adminAccessToken>" -H "Content-Type: application/json" \
+  -d '{"amountIdr":10000000,"minDpPercent":30,"briefId":"<briefId>"}'
+curl -X POST localhost:3000/projects/<projectId>/payments/claim -H "Authorization: Bearer <clientAccessToken>" -H "Content-Type: application/json" \
+  -d '{"type":"DP","amountIdr":3000000,"method":"Transfer BCA","proofImageBase64":"data:image/png;base64,..."}'
+curl -X PATCH localhost:3000/projects/<projectId>/payments/<paymentId>/verify -H "Authorization: Bearer <adminAccessToken>" -H "Content-Type: application/json" \
+  -d '{"decision":"VERIFIED"}'
 ```
 
 ## Tests
@@ -329,6 +386,15 @@ there, see below.
   rejecting a payment before a price is set, rejecting a non-positive
   amount, and that only agency staff (not `CLIENT_VIEWER`/`CLIENT_APPROVER`)
   can record one.
+- `test/client-portal-flow.e2e-spec.ts` — client account provisioning
+  (temporary password actually logs in, admin-only, rejects an agency role,
+  rejects a duplicate email), `CLIENT_APPROVER` can submit a brief and
+  `CLIENT_VIEWER` can't, AI price suggestion persists on the brief with the
+  same fake-`ModelRouterService` pattern as `briefs.e2e-spec.ts` (plus a
+  malformed-output case asserting `502` and that nothing gets stored),
+  sending an invoice syncs `Project.totalPriceIdr`/`minDpPercent`, and a
+  client's payment claim stays `PENDING` (excluded from `totalPaidIdr`)
+  until staff verifies it -- including that a rejected claim never counts.
 
 **No API keys needed to run any of this.** `AnthropicProvider` and
 `GeminiProvider` still get constructed by Nest's DI container in these
@@ -338,9 +404,14 @@ running the full e2e suite with `ANTHROPIC_API_KEY`/`GEMINI_API_KEY` unset
 before trusting CI not to need them as secrets.
 
 The one thing intentionally *not* covered by an automated test: an actual
-network call to Anthropic or Gemini succeeding. That was verified manually,
-end-to-end, against the real APIs (see git history) — not practical to run
-on every CI push without incurring real cost.
+network call to Anthropic or Gemini succeeding (draft generation and AI
+price suggestion alike). Both were verified manually, end-to-end, against
+the real APIs (see git history) — not practical to run on every CI push
+without incurring real cost. The price-suggestion path also needed a real
+call to catch a bug the fake provider couldn't: `PRICE_SUGGESTION_MAX_TOKENS`
+was originally 500, and Claude's extended-thinking budget draws from that
+same allocation even at `output_config.effort: "low"` — the visible JSON
+was getting truncated before its closing brace. Bumped to 1024.
 
 ## What's deliberately not here yet
 
@@ -361,17 +432,19 @@ oversights:
   note per round isn't enough in practice.
 - **Realtime (WebSocket pub-sub)** — deferred; Redis is provisioned (cheap
   to add early per doc §6) but nothing uses it yet.
-- **Client Portal / `client-approver` & `client-viewer` role UX** — the
-  roles exist in the schema (so the enum doesn't need a breaking change
-  later), and the review-cycle endpoints above are ready to be gated to
-  them, but no portal-specific routes or client-facing auth exist yet. This
-  is the real gap right now: clients currently can't interact with the
-  system at all -- an agency staff member calls approve/request-revision on
-  the client's behalf after hearing back from them out-of-band.
-- **Client-facing portal** — `apps/web` is the *internal* Kravio dashboard
-  (staff-only, gated by the existing roles). A client-facing UI for
-  approve/request-revision self-service is still not built; that's the
-  Client Portal gap described above.
+- **Client Portal frontend** — the backend side of this is now real: a
+  `CLIENT_APPROVER` can log in with their own account, submit a brief,
+  approve/request-revision on a task, and claim a payment with proof (see
+  "Client accounts, AI pricing, invoices & payment verification" above).
+  What's still missing is a UI for any of it — `apps/web` is the *internal*
+  Kravio dashboard (staff-only), and the planned `apps/client` (a separate
+  app, so a client session never shares route-space with staff-only
+  analytics) doesn't exist yet. Until it does, exercising these endpoints
+  means curl or a REST client, not a browser.
+- **Password reset / change** — doesn't exist for any role, client or
+  staff. `POST /users`-provisioned client accounts get a one-time temporary
+  password with no way to rotate it afterward. Fine for now, a real gap
+  once the portal has actual users.
 
 ## Repo layout
 

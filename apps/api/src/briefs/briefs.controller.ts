@@ -11,7 +11,10 @@ import { Roles } from "../common/decorators/roles.decorator";
 export class BriefsController {
   constructor(private readonly briefsService: BriefsService) {}
 
-  @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR)
+  // CLIENT_APPROVER can submit their own brief now that there's a portal
+  // for them to do it from -- CLIENT_VIEWER stays excluded (viewing is not
+  // deciding, same rule tasks.controller.ts already follows for approvals).
+  @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR, Role.CLIENT_APPROVER)
   @Post()
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateBriefDto) {
     return this.briefsService.create(user, dto);
@@ -31,5 +34,13 @@ export class BriefsController {
   @Sse(":id/generate")
   generate(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser): Observable<MessageEvent> {
     return this.briefsService.generateStream(id, user);
+  }
+
+  // Staff-only: a client submits the brief, but pricing it is the agency's
+  // call to make (and to spend AI credit on) before anything is sent back.
+  @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR)
+  @Post(":id/suggest-price")
+  suggestPrice(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.briefsService.suggestPrice(id, user);
   }
 }

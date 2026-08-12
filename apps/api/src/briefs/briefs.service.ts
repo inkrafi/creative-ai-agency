@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { HttpException, HttpStatus, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { GenerationJobStatus, Prisma, TaskStatus } from "@prisma/client";
 import { Observable } from "rxjs";
 import { MessageEvent } from "@nestjs/common";
@@ -8,11 +8,20 @@ import { CreditLedgerService } from "../generation/credit-ledger.service";
 import { AuthenticatedUser } from "../common/decorators/current-user.decorator";
 import { CreateBriefDto } from "./dto/create-brief.dto";
 import { BRIEF_SYSTEM_PROMPTS, formatBriefPrompt, validateBriefContext } from "./brief-context";
+import {
+  formatPricePrompt,
+  parsePriceSuggestion,
+  PriceSuggestion,
+  PRICE_SUGGESTION_MAX_TOKENS,
+  PRICE_SUGGESTION_SYSTEM_PROMPT,
+} from "./price-suggestion";
 
 const GENERATION_MAX_TOKENS = 2048;
 
 @Injectable()
 export class BriefsService {
+  private readonly logger = new Logger(BriefsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly modelRouter: ModelRouterService,
@@ -225,6 +234,113 @@ export class BriefsService {
       }
       subscriber.next({ type: "error", data: "Generation failed. Please try again." });
       subscriber.complete();
+    }
+  }
+
+  /**
+   * A short, synchronous AI call (not streamed like generateStream()) -- the
+   * output is a single JSON number + a couple sentences, not user-facing
+   * prose, so there's no UX reason to stream it. Still logged as a
+   * GenerationJob and metered through the same hold-then-settle credit flow
+   * as draft generation, attributed to the brief's own first task (every
+   * Brief gets one atomically in create()) since GenerationJob.taskId is
+   * required.
+   *
+   * This is a *suggestion* only: it's persisted onto the Brief for staff to
+   * review/edit, never applied to Project.totalPriceIdr directly. That only
+   * happens when staff explicitly sends an invoice (see
+   * ProjectsService.sendInvoice()).
+   */
+  async suggestPrice(briefId: string, user: AuthenticatedUser): Promise<PriceSuggestion> {
+    const brief = await this.findOne(briefId);
+    const task = await this.prisma.client.task.findFirst({ where: { briefId: brief.id } });
+    if (!task) throw new NotFoundException("Brief has no task to attribute this generation to");
+
+    const estimatedMicros = this.creditLedger.estimateCostMicros(
+      this.modelRouter.primaryModel,
+      brief.instructions,
+      PRICE_SUGGESTION_MAX_TOKENS,
+    );
+
+    const job = await this.prisma.client.generationJob.create({
+      data: {
+        organizationId: user.tenantId,
+        taskId: task.id,
+        createdById: user.userId,
+        model: this.modelRouter.primaryModel,
+        estimatedCostMicros: estimatedMicros,
+      },
+    });
+
+    const reserved = await this.creditLedger.reserve(user.tenantId, job.id, estimatedMicros);
+    if (!reserved.ok) {
+      await this.prisma.client.generationJob.update({
+        where: { id: job.id },
+        data: { status: GenerationJobStatus.FAILED, errorMessage: "insufficient_credit" },
+      });
+      throw new HttpException("Insufficient credit balance.", HttpStatus.PAYMENT_REQUIRED);
+    }
+
+    let settled = false;
+    try {
+      await this.prisma.client.generationJob.update({
+        where: { id: job.id },
+        data: { status: GenerationJobStatus.PROCESSING },
+      });
+
+      const stream = this.modelRouter.generate({
+        systemPrompt: PRICE_SUGGESTION_SYSTEM_PROMPT,
+        prompt: formatPricePrompt(brief),
+        maxTokens: PRICE_SUGGESTION_MAX_TOKENS,
+      });
+
+      let fullText = "";
+      for await (const delta of stream.textDeltas) fullText += delta;
+      const usage = await stream.usage();
+      const actualMicros = this.creditLedger.actualCostMicros(usage.model, usage.inputTokens, usage.outputTokens);
+
+      await this.prisma.client.generationJob.update({
+        where: { id: job.id },
+        data: {
+          status: GenerationJobStatus.COMPLETED,
+          provider: usage.provider,
+          model: usage.model,
+          promptTokens: usage.inputTokens,
+          completionTokens: usage.outputTokens,
+          actualCostMicros: actualMicros,
+        },
+      });
+      await this.creditLedger.settle(user.tenantId, reserved.ledgerEntryId, actualMicros);
+      settled = true;
+
+      // Parsed AFTER settle -- the model call itself succeeded and cost
+      // real tokens regardless of whether its output happens to be valid
+      // JSON; a parse failure below isn't a billing failure.
+      let suggestion: PriceSuggestion;
+      try {
+        suggestion = parsePriceSuggestion(fullText);
+      } catch (parseErr) {
+        this.logger.warn(`Unparseable price suggestion output: ${JSON.stringify(fullText)}`);
+        throw parseErr;
+      }
+
+      await this.prisma.client.brief.update({
+        where: { id: brief.id },
+        data: { aiSuggestedPriceIdr: suggestion.priceIdr, aiPriceReasoning: suggestion.reasoning },
+      });
+
+      return suggestion;
+    } catch (err) {
+      if (!settled) {
+        await this.creditLedger.release(user.tenantId, reserved.ledgerEntryId).catch(() => {});
+        await this.prisma.client.generationJob
+          .update({
+            where: { id: job.id },
+            data: { status: GenerationJobStatus.FAILED, errorMessage: String(err) },
+          })
+          .catch(() => {});
+      }
+      throw err;
     }
   }
 
