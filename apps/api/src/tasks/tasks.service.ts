@@ -7,6 +7,7 @@ import { CreateTaskDto } from "./dto/create-task.dto";
 import { UpdateTaskDto } from "./dto/update-task.dto";
 import { SubmitForReviewDto } from "./dto/submit-for-review.dto";
 import { RequestRevisionDto } from "./dto/request-revision.dto";
+import { ClassifyRevisionDto } from "./dto/classify-revision.dto";
 
 @Injectable()
 export class TasksService {
@@ -127,8 +128,15 @@ export class TasksService {
    * a "you've used what's included" limit, the same shape as insufficient
    * credit, not a malformed request.
    *
-   * Logs a RevisionRequest (round = the new revisionsUsed value) alongside
-   * the status flip -- see its schema comment for why `note` is required.
+   * Logs a RevisionRequest (round = the running count of requests so far,
+   * billable or not) alongside the status flip -- see its schema comment
+   * for why `note` is required. Does NOT increment `revisionsUsed` itself
+   * anymore: staff hasn't looked at *why* the client is asking yet, and
+   * "the client asked" isn't the same thing as "this counts against their
+   * included revisions" -- see classifyRevisionRequest(). The task still
+   * flips to IN_PROGRESS immediately so staff can start the work right
+   * away; classification is a separate, asynchronous bookkeeping decision
+   * that doesn't need to block anyone.
    */
   async requestRevision(id: string, user: AuthenticatedUser, dto: RequestRevisionDto) {
     const task = await this.findOne(id);
@@ -143,7 +151,7 @@ export class TasksService {
       );
     }
 
-    const round = task.revisionsUsed + 1;
+    const round = task.revisionRequests.length + 1;
 
     return this.prisma.runAsTenant(task.organizationId, async (tx) => {
       await tx.revisionRequest.create({
@@ -157,7 +165,53 @@ export class TasksService {
       });
       return tx.task.update({
         where: { id },
-        data: { status: TaskStatus.IN_PROGRESS, revisionsUsed: { increment: 1 } },
+        data: { status: TaskStatus.IN_PROGRESS },
+        include: {
+          deliverables: { orderBy: { version: "desc" } },
+          revisionRequests: { orderBy: { round: "desc" } },
+        },
+      });
+    });
+  }
+
+  /**
+   * Staff's call on *why* a revision was requested -- billable (the client
+   * asked for something new/out of scope, counts against their included
+   * revisions) or free (Kravio's own mistake, doesn't). This is the only
+   * thing that ever changes `Task.revisionsUsed` now (see
+   * requestRevision()'s comment) -- computed as a delta from the request's
+   * previous classification to its new one, so staff correcting an earlier
+   * call adjusts the count instead of only ever being able to add to it.
+   */
+  async classifyRevisionRequest(
+    taskId: string,
+    revisionRequestId: string,
+    staffUserId: string,
+    dto: ClassifyRevisionDto,
+  ) {
+    const task = await this.findOne(taskId);
+    const revisionRequest = task.revisionRequests.find((r) => r.id === revisionRequestId);
+    if (!revisionRequest) throw new NotFoundException("Revision request not found for this task");
+
+    const wasBillable = revisionRequest.billable === true;
+    const delta = (dto.billable ? 1 : 0) - (wasBillable ? 1 : 0);
+
+    return this.prisma.runAsTenant(task.organizationId, async (tx) => {
+      await tx.revisionRequest.update({
+        where: { id: revisionRequestId },
+        data: {
+          billable: dto.billable,
+          classifiedById: staffUserId,
+          classifiedAt: new Date(),
+          classificationNote: dto.note,
+        },
+      });
+      // increment: 0 when the classification didn't actually change (e.g.
+      // re-submitting the same decision) -- a harmless no-op, simpler than
+      // conditionally omitting the field.
+      return tx.task.update({
+        where: { id: taskId },
+        data: { revisionsUsed: { increment: delta } },
         include: {
           deliverables: { orderBy: { version: "desc" } },
           revisionRequests: { orderBy: { round: "desc" } },

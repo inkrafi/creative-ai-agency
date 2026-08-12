@@ -85,11 +85,20 @@ export class ProjectsService {
    * silently net against what other clients owe.
    */
   async getSummary() {
-    const [activeProjects, tasksInReview, projects] = await Promise.all([
-      this.prisma.client.project.count({ where: { status: "ACTIVE" } }),
-      this.prisma.client.task.count({ where: { status: "IN_REVIEW" } }),
-      this.prisma.client.project.findMany({ include: { payments: true } }),
-    ]);
+    const [activeProjects, tasksInReview, projects, pendingPaymentVerifications, pendingRevisionClassifications, briefsAwaitingPrice] =
+      await Promise.all([
+        this.prisma.client.project.count({ where: { status: "ACTIVE" } }),
+        this.prisma.client.task.count({ where: { status: "IN_REVIEW" } }),
+        this.prisma.client.project.findMany({ include: { payments: true } }),
+        // The three "needs staff attention" counters -- surfaced on the
+        // Ringkasan overview so a new brief/claim/revision doesn't sit
+        // undiscovered just because no one happened to open that specific
+        // project. No unified queue page yet (see README) -- these are
+        // awareness, not a one-click deep link, for now.
+        this.prisma.client.payment.count({ where: { verificationStatus: "PENDING" } }),
+        this.prisma.client.revisionRequest.count({ where: { billable: null } }),
+        this.prisma.client.brief.count({ where: { aiSuggestedPriceIdr: null } }),
+      ]);
 
     let totalRevenueIdr = 0;
     let outstandingIdr = 0;
@@ -101,7 +110,15 @@ export class ProjectsService {
       }
     }
 
-    return { activeProjects, tasksInReview, totalRevenueIdr, outstandingIdr };
+    return {
+      activeProjects,
+      tasksInReview,
+      totalRevenueIdr,
+      outstandingIdr,
+      pendingPaymentVerifications,
+      pendingRevisionClassifications,
+      briefsAwaitingPrice,
+    };
   }
 
   async findOne(id: string) {
@@ -218,7 +235,12 @@ export class ProjectsService {
 
     await this.prisma.client.payment.update({
       where: { id: paymentId },
-      data: { verificationStatus: dto.decision, verifiedById: staffUserId, verifiedAt: new Date() },
+      data: {
+        verificationStatus: dto.decision,
+        verifiedById: staffUserId,
+        verifiedAt: new Date(),
+        verificationNote: dto.note,
+      },
     });
 
     return this.findOne(projectId);

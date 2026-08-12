@@ -349,7 +349,7 @@ describe("Client portal flow (e2e)", () => {
       expect(verified.body.paymentStatus).toBe("PARTIAL");
     });
 
-    it("a rejected claim never counts, even after the decision is recorded", async () => {
+    it("a rejected claim never counts, even after the decision is recorded, and requires a reason", async () => {
       const { adminToken, token: approverToken, userId } = await signupWithRole(Role.CLIENT_APPROVER);
       const project = await pricedProject(adminToken, 10_000_000, userId);
 
@@ -361,13 +361,25 @@ describe("Client portal flow (e2e)", () => {
       }).expect(201);
       const pendingId = claimRes.body.payments[0].id;
 
-      const rejected = await request(app.getHttpServer())
+      // No reason given -- rejected outright, the payment stays PENDING.
+      await request(app.getHttpServer())
         .patch(`/projects/${project.id}/payments/${pendingId}/verify`)
         .set("Authorization", `Bearer ${adminToken}`)
         .send({ decision: "REJECTED" })
+        .expect(400);
+
+      const rejected = await request(app.getHttpServer())
+        .patch(`/projects/${project.id}/payments/${pendingId}/verify`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ decision: "REJECTED", note: "Jumlah di bukti transfer tidak sesuai" })
         .expect(200);
       expect(rejected.body.totalPaidIdr).toBe(0);
       expect(rejected.body.paymentStatus).toBe("UNPAID");
+      const pendingAfter = rejected.body.payments.find((p: { id: string }) => p.id === pendingId);
+      expect(pendingAfter).toMatchObject({
+        verificationStatus: "REJECTED",
+        verificationNote: "Jumlah di bukti transfer tidak sesuai",
+      });
     });
 
     it("CLIENT_VIEWER cannot claim a payment", async () => {

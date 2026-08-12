@@ -70,6 +70,13 @@ describe("Task review flow (e2e)", () => {
       .send({ note });
   }
 
+  function classifyRevision(token: string, taskId: string, requestId: string, billable: boolean, note?: string) {
+    return request(app.getHttpServer())
+      .patch(`/tasks/${taskId}/revision-requests/${requestId}/classify`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ billable, note });
+  }
+
   it("starts TODO with the default revision allowance", async () => {
     const token = await signup();
     const task = await createTask(token);
@@ -108,7 +115,7 @@ describe("Task review flow (e2e)", () => {
     expect(approved.body.status).toBe("DONE");
   });
 
-  it("a revision request sends the task back to IN_PROGRESS, counts against the limit, and logs the note", async () => {
+  it("a revision request sends the task back to IN_PROGRESS and logs the note, but doesn't yet count against the limit", async () => {
     const token = await signup();
     const task = await createTask(token);
 
@@ -116,11 +123,45 @@ describe("Task review flow (e2e)", () => {
 
     const revised = await requestRevision(token, task.id, "Colors are too bright, please tone down").expect(201);
     expect(revised.body.status).toBe("IN_PROGRESS");
-    expect(revised.body.revisionsUsed).toBe(1);
+    // Not incremented yet -- see classifyRevisionRequest(): only a
+    // *billable* classification burns the quota, and staff hasn't decided
+    // whose fault this was yet.
+    expect(revised.body.revisionsUsed).toBe(0);
     expect(revised.body.revisionRequests).toHaveLength(1);
     expect(revised.body.revisionRequests[0]).toMatchObject({
       round: 1,
       note: "Colors are too bright, please tone down",
+      billable: null,
+    });
+  });
+
+  describe("classifying a revision request", () => {
+    it("billable: true increments revisionsUsed; billable: false doesn't", async () => {
+      const token = await signup();
+      const task = await createTask(token);
+      await submitForReview(token, task.id).expect(201);
+      const revised = await requestRevision(token, task.id).expect(201);
+      const requestId = revised.body.revisionRequests[0].id as string;
+
+      const freed = await classifyRevision(token, task.id, requestId, false, "Our bug, not the client's fault").expect(200);
+      expect(freed.body.revisionsUsed).toBe(0);
+      expect(freed.body.revisionRequests[0]).toMatchObject({ billable: false });
+
+      const billed = await classifyRevision(token, task.id, requestId, true, "Actually new scope").expect(200);
+      expect(billed.body.revisionsUsed).toBe(1);
+      expect(billed.body.revisionRequests[0]).toMatchObject({ billable: true });
+    });
+
+    it("re-classifying billable:true back to false decrements revisionsUsed again", async () => {
+      const token = await signup();
+      const task = await createTask(token);
+      await submitForReview(token, task.id).expect(201);
+      const revised = await requestRevision(token, task.id).expect(201);
+      const requestId = revised.body.revisionRequests[0].id as string;
+
+      await classifyRevision(token, task.id, requestId, true).expect(200);
+      const reclassified = await classifyRevision(token, task.id, requestId, false).expect(200);
+      expect(reclassified.body.revisionsUsed).toBe(0);
     });
   });
 
@@ -150,14 +191,19 @@ describe("Task review flow (e2e)", () => {
     expect(resubmitted.body.deliverables[1]).toMatchObject({ url: "https://staging.example.test/v1", version: 1 });
   });
 
-  it("blocks a revision request once the limit is reached (402) and never touches status", async () => {
+  it("blocks a revision request once the *billable* limit is reached (402) and never touches status", async () => {
     const token = await signup();
     const task = await createTask(token);
 
-    // Use up both included revisions (default maxRevisions: 2).
+    // Use up both included revisions (default maxRevisions: 2) -- the gate
+    // reads Task.revisionsUsed, which only grows once staff classifies a
+    // request as billable (see classifyRevisionRequest()), not merely from
+    // requesting one.
     for (let i = 0; i < 2; i++) {
       await submitForReview(token, task.id).expect(201);
-      await requestRevision(token, task.id).expect(201);
+      const revised = await requestRevision(token, task.id).expect(201);
+      const requestId = revised.body.revisionRequests[0].id as string;
+      await classifyRevision(token, task.id, requestId, true).expect(200);
     }
 
     await submitForReview(token, task.id).expect(201);

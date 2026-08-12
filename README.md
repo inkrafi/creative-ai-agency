@@ -108,18 +108,40 @@ a new arrangement, not a free revision. All three actions are on
   row (versioned like `Asset`, see its schema comment) rather than
   overwriting the last one, so re-submitting after a revision round doesn't
   erase what was shown in the previous round.
-- `POST /tasks/:id/request-revision` — `IN_REVIEW` → `IN_PROGRESS`, and
-  increments `Task.revisionsUsed`. Body: `{ note: string }` — **required**,
-  same reasoning as `deliverableUrl` above: a revision request with no
-  explanation of what's wrong leaves the designer/developer with nothing to
-  act on. Logged as a `RevisionRequest` row (`round` = the new
-  `revisionsUsed` value), so the full history of what was asked for each
-  round is on record, not just the latest note. Blocked with `402` once
+- `POST /tasks/:id/request-revision` — `IN_REVIEW` → `IN_PROGRESS`. Body:
+  `{ note: string }` — **required**, same reasoning as `deliverableUrl`
+  above: a revision request with no explanation of what's wrong leaves the
+  designer/developer with nothing to act on. Logged as a `RevisionRequest`
+  row (`round` = a running count of requests so far, billable or not).
+  Does **not** increment `Task.revisionsUsed` by itself anymore -- see
+  "Revision classification" below. Blocked with `402` once
   `revisionsUsed` reaches `Task.maxRevisions` (default 2) — mirrors the
   credit ledger's "check before, not after" philosophy: unlimited free
   revisions is exactly the kind of scope creep that quietly erodes an
   agency's margin.
 - `POST /tasks/:id/approve` — `IN_REVIEW` → `DONE`.
+
+### Revision classification: not every request is the client's fault
+
+Requesting a revision no longer costs the client one of their included
+rounds by itself. Whether it *should* is a judgment call -- staff, not the
+client, decides whether the request was genuinely new scope or Kravio's
+own mistake, and free fixes for the agency's own errors shouldn't burn the
+client's quota.
+
+- `PATCH /tasks/:id/revision-requests/:requestId/classify` (staff-only):
+  body `{ billable: boolean, note?: string }`. `billable: true` means the
+  client asked for something new/out of scope and it counts;
+  `billable: false` means it was Kravio's mistake and it's free.
+  `RevisionRequest.billable` starts `null` ("not reviewed yet" is a real,
+  visible state -- not indistinguishable from "reviewed and free").
+- `Task.revisionsUsed` only changes here, as a delta from the request's
+  previous classification to its new one -- so re-classifying (staff
+  correcting an earlier call) adjusts the count in either direction
+  instead of only ever adding to it.
+- No dedicated review queue page yet -- `GET /projects/summary`'s
+  `pendingRevisionClassifications` counter (see the Ringkasan overview)
+  is the awareness mechanism for "something needs a decision."
 
 **Status is not directly settable.** `PATCH /tasks/:id` deliberately does
 not accept `status` -- the transitions above are the only way it changes,
@@ -209,10 +231,13 @@ Every endpoint below is role-gated.
   `verificationStatus: PENDING`, which does **not** count toward
   `totalPaidIdr` until staff calls
   `PATCH /projects/:id/payments/:paymentId/verify` with
-  `{ decision: "VERIFIED" | "REJECTED" }`. Staff-direct entries (the
-  original `POST .../payments` flow) are unaffected -- they default
-  straight to `VERIFIED`, since staff already confirmed the money arrived
-  before recording it.
+  `{ decision: "VERIFIED" | "REJECTED", note? }`. `note` is **required**
+  when rejecting (`400` without it) and persisted as `Payment.verificationNote`
+  -- a client who submitted real proof deserves to know why it didn't
+  count, not just that it didn't; optional/unused on `VERIFIED`, nothing
+  to explain there. Staff-direct entries (the original `POST .../payments`
+  flow) are unaffected -- they default straight to `VERIFIED`, since staff
+  already confirmed the money arrived before recording it.
 
 ### Client isolation (different clients of the same Kravio org)
 
@@ -447,13 +472,16 @@ there, see below.
   `.overrideProvider()` — no real Anthropic/Gemini calls, no cost, and it
   still exercises the real controller/guard/RLS/ledger path.
 - `test/task-review-flow.e2e-spec.ts` — the submit-for-review /
-  request-revision / approve cycle: happy path, the revision limit's `402`
-  once `maxRevisions` is reached, rejecting actions on a task in the wrong
-  state (e.g. approving something not in review), rejecting
-  submit-for-review with no `deliverableUrl`, rejecting request-revision
-  with no `note`, re-submitting after a revision creating a new
-  `Deliverable` version instead of overwriting it, a logged
-  `RevisionRequest` recording the note against its round number, and the
+  request-revision / approve cycle: happy path, the *billable* revision
+  limit's `402` once `maxRevisions` is reached (via classification, not
+  the raw request count), rejecting actions on a task in the wrong state
+  (e.g. approving something not in review), rejecting submit-for-review
+  with no `deliverableUrl`, rejecting request-revision with no `note`,
+  re-submitting after a revision creating a new `Deliverable` version
+  instead of overwriting it, a logged `RevisionRequest` recording the
+  note against its round number, classifying a revision request
+  (`billable: true` increments `revisionsUsed`, `false` doesn't,
+  re-classifying adjusts the delta in either direction), and the
   authorization-hole regressions: `PATCH` can't set `status` or inflate
   `maxRevisions`, and each role gets exactly the actions it should
   (`CLIENT_VIEWER` can read but not decide, `CLIENT_APPROVER` can decide but

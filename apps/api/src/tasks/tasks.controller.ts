@@ -5,6 +5,7 @@ import { CreateTaskDto } from "./dto/create-task.dto";
 import { UpdateTaskDto } from "./dto/update-task.dto";
 import { SubmitForReviewDto } from "./dto/submit-for-review.dto";
 import { RequestRevisionDto } from "./dto/request-revision.dto";
+import { ClassifyRevisionDto } from "./dto/classify-revision.dto";
 import { CurrentUser, AuthenticatedUser } from "../common/decorators/current-user.decorator";
 import { Roles } from "../common/decorators/roles.decorator";
 
@@ -77,5 +78,19 @@ export class TasksController {
   @Post(":id/approve")
   approve(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.tasksService.approve(id, user);
+  }
+
+  // Staff-only: whether a revision request counts against the client's
+  // included revisions is the agency's own bookkeeping call, not the
+  // client's -- see TasksService.classifyRevisionRequest().
+  @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR)
+  @Patch(":id/revision-requests/:requestId/classify")
+  classifyRevisionRequest(
+    @Param("id") id: string,
+    @Param("requestId") requestId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ClassifyRevisionDto,
+  ) {
+    return this.tasksService.classifyRevisionRequest(id, requestId, user.userId, dto);
   }
 }

@@ -151,23 +151,23 @@ model Project {
 /// create time, not client-supplied) and kept so the exact prompt sent to
 /// the model is on record even if the formatting logic changes later.
 model Brief {
-  id             String    @id @default(uuid()) @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  projectId      String    @map("project_id") @db.Uuid
-  title          String
-  type           BriefType
-  context        Json
-  instructions   String
+  id                  String    @id @default(uuid()) @db.Uuid
+  organizationId      String    @map("organization_id") @db.Uuid
+  projectId           String    @map("project_id") @db.Uuid
+  title               String
+  type                BriefType
+  context             Json
+  instructions        String
   // Set by BriefsService.suggestPrice() -- an AI-generated starting point
   // for staff, never applied to Project.totalPriceIdr automatically. Staff
   // reviews/edits the number before it becomes a real invoice; see
   // ProjectsService's invoice-sending flow, which is what actually sets
   // the project's price.
-  aiSuggestedPriceIdr Int?    @map("ai_suggested_price_idr")
-  aiPriceReasoning    String? @map("ai_price_reasoning")
-  createdById    String    @map("created_by_id") @db.Uuid
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  aiSuggestedPriceIdr Int?      @map("ai_suggested_price_idr")
+  aiPriceReasoning    String?   @map("ai_price_reasoning")
+  createdById         String    @map("created_by_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
   project  Project   @relation(fields: [projectId], references: [id])
   tasks    Task[]
@@ -201,12 +201,12 @@ model Task {
   createdAt      DateTime   @default(now()) @map("created_at")
   updatedAt      DateTime   @updatedAt @map("updated_at")
 
-  project           Project           @relation(fields: [projectId], references: [id])
-  brief             Brief?            @relation(fields: [briefId], references: [id])
-  assets            Asset[]
-  generationJobs    GenerationJob[]
-  deliverables      Deliverable[]
-  revisionRequests  RevisionRequest[]
+  project          Project           @relation(fields: [projectId], references: [id])
+  brief            Brief?            @relation(fields: [briefId], references: [id])
+  assets           Asset[]
+  generationJobs   GenerationJob[]
+  deliverables     Deliverable[]
+  revisionRequests RevisionRequest[]
 
   @@index([organizationId])
   @@index([projectId])
@@ -270,13 +270,25 @@ model Deliverable {
 /// developer with nothing to act on, defeating the point of tracking this
 /// at all.
 model RevisionRequest {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  taskId         String   @map("task_id") @db.Uuid
-  note           String
-  round          Int
-  createdById    String   @map("created_by_id") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at")
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  taskId             String    @map("task_id") @db.Uuid
+  note               String
+  round              Int
+  createdById        String    @map("created_by_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at")
+  // Whether this revision actually counts against the client's included
+  // quota -- null until staff reviews it. Requesting a revision no longer
+  // burns Task.revisionsUsed by itself (see TasksService.requestRevision);
+  // that only happens once staff classifies the *cause* here: true if the
+  // client asked for something new/out of scope (billable, counts), false
+  // if it was Kravio's own mistake (free, doesn't count). Nullable so "not
+  // reviewed yet" is a real, visible state, not indistinguishable from
+  // "reviewed and free."
+  billable           Boolean?  @map("billable")
+  classifiedById     String?   @map("classified_by_id") @db.Uuid
+  classifiedAt       DateTime? @map("classified_at")
+  classificationNote String?   @map("classification_note")
 
   task Task @relation(fields: [taskId], references: [id])
 
@@ -297,15 +309,15 @@ model RevisionRequest {
 /// is bookkeeping for humans who already know their own arrangement with
 /// the client, not a payment gateway state machine.
 model Payment {
-  id             String      @id @default(uuid()) @db.Uuid
-  organizationId String      @map("organization_id") @db.Uuid
-  projectId      String      @map("project_id") @db.Uuid
-  type           PaymentType
-  amountIdr      Int         @map("amount_idr")
-  method         String
-  note           String?
-  recordedById   String      @map("recorded_by_id") @db.Uuid
-  createdAt      DateTime    @default(now()) @map("created_at")
+  id                 String                    @id @default(uuid()) @db.Uuid
+  organizationId     String                    @map("organization_id") @db.Uuid
+  projectId          String                    @map("project_id") @db.Uuid
+  type               PaymentType
+  amountIdr          Int                       @map("amount_idr")
+  method             String
+  note               String?
+  recordedById       String                    @map("recorded_by_id") @db.Uuid
+  createdAt          DateTime                  @default(now()) @map("created_at")
   // Data-URI image the client attached as proof when self-submitting a
   // claim (ProjectsService.claimPayment) -- null for staff-direct entries,
   // which have no claim step to prove. Stored inline in Postgres rather
@@ -320,6 +332,10 @@ model Payment {
   verificationStatus PaymentVerificationStatus @default(VERIFIED) @map("verification_status")
   verifiedById       String?                   @map("verified_by_id") @db.Uuid
   verifiedAt         DateTime?                 @map("verified_at")
+  // Required when verificationStatus is REJECTED (see VerifyPaymentDto) --
+  // a client who submitted real proof deserves to know why it didn't
+  // count, not just that it didn't.
+  verificationNote   String?                   @map("verification_note")
 
   project Project @relation(fields: [projectId], references: [id])
 
