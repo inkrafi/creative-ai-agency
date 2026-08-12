@@ -5,6 +5,7 @@ import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { Badge, Button, Card, Input, Label, Select, SectionTitle } from "@/components/ui";
+import { DataTable, type DataTableColumn, type DataTableFilter } from "@/components/data-table";
 import type { AppUser, Role } from "@/lib/types";
 
 const ROLE_LABEL: Record<Role, string> = {
@@ -60,6 +61,38 @@ export default function ClientsPage() {
     await navigator.clipboard.writeText(created.temporaryPassword);
     setCopied(true);
   }
+
+  const columns: DataTableColumn<AppUser>[] = [
+    {
+      key: "name",
+      header: "Nama",
+      render: (u) => <span className="font-medium text-ink">{u.name}</span>,
+    },
+    {
+      key: "email",
+      header: "Email",
+      render: (u) => <span className="text-ink-muted">{u.email}</span>,
+    },
+    {
+      key: "role",
+      header: "Peran",
+      render: (u) => <Badge>{ROLE_LABEL[u.role]}</Badge>,
+    },
+    {
+      key: "createdAt",
+      header: "Bergabung",
+      render: (u) => <span className="text-ink-muted">{formatDate(u.createdAt)}</span>,
+    },
+  ];
+
+  const filters: DataTableFilter<AppUser>[] = [
+    {
+      key: "role",
+      label: "Peran",
+      options: Object.entries(ROLE_LABEL).map(([value, label]) => ({ value, label })),
+      getValue: (u) => u.role,
+    },
+  ];
 
   return (
     <div className="flex flex-col gap-6">
@@ -126,26 +159,20 @@ export default function ClientsPage() {
         </Card>
       )}
 
-      <Card className="p-0">
-        <div className="p-5 pb-0">
-          <SectionTitle>Semua anggota</SectionTitle>
-        </div>
+      <Card>
+        <SectionTitle>Semua anggota</SectionTitle>
         {users.length === 0 ? (
-          <p className="p-5 pt-0 text-sm text-ink-muted">Memuat…</p>
+          <p className="text-sm text-ink-muted">Memuat…</p>
         ) : (
-          <div className="flex flex-col divide-y divide-border">
-            {users.map((u) => (
-              <div key={u.id} className="flex items-center justify-between gap-3 px-5 py-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-ink">{u.name}</div>
-                  <div className="truncate text-xs text-ink-muted">
-                    {u.email} · Bergabung {formatDate(u.createdAt)}
-                  </div>
-                </div>
-                <Badge>{ROLE_LABEL[u.role]}</Badge>
-              </div>
-            ))}
-          </div>
+          <DataTable
+            data={users}
+            columns={columns}
+            rowKey={(u) => u.id}
+            searchPlaceholder="Cari nama atau email…"
+            searchValue={(u) => `${u.name} ${u.email}`}
+            filters={filters}
+            emptyMessage="Belum ada anggota."
+          />
         )}
       </Card>
     </div>

@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatDate, formatIdr } from "@/lib/format";
-import { Badge, Card } from "@/components/ui";
+import { Badge } from "@/components/ui";
+import { DataTable, type DataTableColumn, type DataTableFilter } from "@/components/data-table";
 import type { Brief, Invoice, Project } from "@/lib/types";
+
+const TYPE_LABEL: Record<Brief["type"], string> = { WEBSITE: "Website", DESIGN: "Desain" };
 
 export default function BriefsPage() {
   const [briefs, setBriefs] = useState<Brief[] | null>(null);
@@ -37,6 +39,71 @@ export default function BriefsPage() {
     [briefs],
   );
 
+  const columns: DataTableColumn<Brief>[] = [
+    {
+      key: "title",
+      header: "Brief",
+      render: (b) => (
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-ink">{b.title}</div>
+          <div className="truncate text-xs text-ink-muted">
+            {projectNameById.get(b.projectId) ?? "Proyek tidak diketahui"} · {formatDate(b.createdAt)}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "type",
+      header: "Tipe",
+      render: (b) => <Badge>{TYPE_LABEL[b.type]}</Badge>,
+    },
+    {
+      key: "price",
+      header: "Estimasi AI",
+      render: (b) => (
+        <Badge tone={b.aiSuggestedPriceIdr !== null ? "success" : "warning"}>
+          {b.aiSuggestedPriceIdr !== null ? formatIdr(b.aiSuggestedPriceIdr) : "Belum diestimasi"}
+        </Badge>
+      ),
+    },
+    {
+      key: "invoice",
+      header: "Invoice",
+      render: (b) => (
+        <Badge tone={invoicedBriefIds.has(b.id) ? "success" : "neutral"}>
+          {invoicedBriefIds.has(b.id) ? "Terkirim" : "Belum ada"}
+        </Badge>
+      ),
+    },
+  ];
+
+  const filters: DataTableFilter<Brief>[] = [
+    {
+      key: "type",
+      label: "Tipe",
+      options: Object.entries(TYPE_LABEL).map(([value, label]) => ({ value, label })),
+      getValue: (b) => b.type,
+    },
+    {
+      key: "price",
+      label: "Estimasi AI",
+      options: [
+        { value: "YES", label: "Sudah diestimasi" },
+        { value: "NO", label: "Belum diestimasi" },
+      ],
+      getValue: (b) => (b.aiSuggestedPriceIdr !== null ? "YES" : "NO"),
+    },
+    {
+      key: "invoice",
+      label: "Invoice",
+      options: [
+        { value: "YES", label: "Terkirim" },
+        { value: "NO", label: "Belum ada" },
+      ],
+      getValue: (b) => (invoicedBriefIds.has(b.id) ? "YES" : "NO"),
+    },
+  ];
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -47,39 +114,20 @@ export default function BriefsPage() {
         </p>
       </div>
 
-      <Card className="p-0">
-        {sorted === null ? (
-          <p className="p-5 text-sm text-ink-muted">Memuat…</p>
-        ) : sorted.length === 0 ? (
-          <p className="p-5 text-sm text-ink-muted">Belum ada brief.</p>
-        ) : (
-          <div className="flex flex-col divide-y divide-border">
-            {sorted.map((b) => (
-              <Link
-                key={b.id}
-                href={`/briefs/${b.id}`}
-                className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 hover:bg-surface-2"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-ink">{b.title}</div>
-                  <div className="truncate text-xs text-ink-muted">
-                    {projectNameById.get(b.projectId) ?? "Proyek tidak diketahui"} · {formatDate(b.createdAt)}
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Badge>{b.type === "WEBSITE" ? "Website" : "Desain"}</Badge>
-                  <Badge tone={b.aiSuggestedPriceIdr !== null ? "success" : "warning"}>
-                    {b.aiSuggestedPriceIdr !== null ? formatIdr(b.aiSuggestedPriceIdr) : "Belum diestimasi"}
-                  </Badge>
-                  <Badge tone={invoicedBriefIds.has(b.id) ? "success" : "neutral"}>
-                    {invoicedBriefIds.has(b.id) ? "Invoice terkirim" : "Belum ada invoice"}
-                  </Badge>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </Card>
+      {sorted === null ? (
+        <p className="text-sm text-ink-muted">Memuat…</p>
+      ) : (
+        <DataTable
+          data={sorted}
+          columns={columns}
+          rowKey={(b) => b.id}
+          getRowHref={(b) => `/briefs/${b.id}`}
+          searchPlaceholder="Cari judul brief atau proyek…"
+          searchValue={(b) => `${b.title} ${projectNameById.get(b.projectId) ?? ""}`}
+          filters={filters}
+          emptyMessage="Belum ada brief."
+        />
+      )}
     </div>
   );
 }
