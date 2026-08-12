@@ -90,3 +90,31 @@ export function TrendUpIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function TrendDownIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M3 6.5 8 11.5l3-3 6 6" />
+      <path d="M13 14.5h4v-4" />
+    </svg>
+  );
+}
+
+export function ClockIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="10" cy="10" r="7.5" />
+      <path d="M10 5.5V10l3 2" />
+    </svg>
+  );
+}
+
+export function AlertCircleIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="10" cy="10" r="7.5" />
+      <path d="M10 6.5v4" />
+      <circle cx="10" cy="13.5" r="0.4" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}

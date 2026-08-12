@@ -1,65 +1,45 @@
 @import "tailwindcss";
 
 /*
- * Kravio brand tokens, derived from the 4-color brand palette:
- *   #1664b0 (blue)  #c8e645 (lime)  #efe8de (cream)  #082d50 (navy)
+ * Kravio brand tokens. Base is white-on-white with a single blue accent
+ * (#1664b0, the brand's primary hex) -- deliberately near-monochrome so the
+ * accent color always means "this is interactive / this is the brand",
+ * never just decoration. Lime (#c8e645) is the brand's secondary color but
+ * stays reserved for one-off signature moments, not general UI chrome --
+ * spread across a data-dense dashboard it would compete with the accent.
  *
- * Raw tokens live under plain names in :root / the dark media query;
- * @theme inline maps them into Tailwind's --color-* namespace so utilities
- * like `bg-page`, `text-ink-muted`, `bg-brand` are generated from them.
- * Semantic status colors (success/warning/danger) are deliberately NOT
- * derived from the brand palette -- a status pill needs to mean the same
- * thing regardless of brand color, and reusing lime for "success" would
- * make it ambiguous with the brand accent.
+ * Single theme, deliberately -- not adaptive to the OS's dark-mode
+ * preference. Kravio's brief was "white, with a blue accent"; a dashboard
+ * that silently flips to navy-on-black for half its viewers wouldn't be
+ * honoring that. @theme inline maps these into Tailwind's --color-*
+ * namespace so utilities like `bg-page`, `text-ink-muted`, `bg-brand` are
+ * generated from them. Semantic status colors (success/warning/danger) are
+ * deliberately NOT derived from the brand palette -- a status pill needs to
+ * mean the same thing regardless of brand color, and reusing lime for
+ * "success" would make it ambiguous with the brand accent.
  */
 :root {
-  --page: #efe8de;
+  --page: #f5f7fa;
   --surface: #ffffff;
-  --surface-2: #f7f3ec;
-  --border: #ddd4c2;
-  --ink: #082d50;
-  --ink-muted: #5b7186;
+  --surface-2: #eef2f7;
+  --border: #e3e8ef;
+  --ink: #101828;
+  --ink-muted: #64748b;
 
   --brand: #1664b0;
   --brand-ink: #ffffff;
   --brand-dark: #0f4a82;
-  --brand-light: #dbe9f6;
+  --brand-light: #e8f1fb;
 
   --accent: #c8e645;
   --accent-ink: #1a2e05;
 
-  --success: #1e824c;
-  --success-bg: #e3f3ea;
-  --warning: #a3660a;
-  --warning-bg: #fbf0da;
+  --success: #15803d;
+  --success-bg: #e9f7ef;
+  --warning: #b45309;
+  --warning-bg: #fdf3e0;
   --danger: #c0392b;
-  --danger-bg: #fbe9e7;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --page: #082d50;
-    --surface: #0d3a63;
-    --surface-2: #0a3358;
-    --border: #1c4d74;
-    --ink: #f3efe6;
-    --ink-muted: #9fb7c9;
-
-    --brand: #5b9ce0;
-    --brand-ink: #082d50;
-    --brand-dark: #7fb2e6;
-    --brand-light: #123f68;
-
-    --accent: #c8e645;
-    --accent-ink: #1a2e05;
-
-    --success: #6fd6a3;
-    --success-bg: #113828;
-    --warning: #f0b84e;
-    --warning-bg: #3a2c10;
-    --danger: #ff8a80;
-    --danger-bg: #3a1f1c;
-  }
+  --danger-bg: #fdedec;
 }
 
 @theme inline {
@@ -91,4 +71,8 @@
 body {
   background: var(--page);
   color: var(--ink);
+  /* Single light theme (see token comment above) -- without this, native
+     controls (select, checkbox) still follow the OS's dark preference and
+     end up light text on light background. */
+  color-scheme: light;
 }
