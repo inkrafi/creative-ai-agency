@@ -46,3 +46,14 @@ export const PAYMENT_VERIFICATION_TONE: Record<PaymentVerificationStatus, "neutr
   VERIFIED: "success",
   REJECTED: "danger",
 };
+
+/** billable: null = staff hasn't reviewed yet, true = counted against your revision quota, false = free (Kravio's mistake). */
+export function revisionClassificationLabel(billable: boolean | null): string {
+  if (billable === null) return "Menunggu peninjauan tim Kravio";
+  return billable ? "Dihitung sebagai jatah revisi" : "Gratis (kesalahan kami)";
+}
+
+export function revisionClassificationTone(billable: boolean | null): "neutral" | "warning" | "success" {
+  if (billable === null) return "warning";
+  return billable ? "neutral" : "success";
+}

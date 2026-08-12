@@ -39,6 +39,7 @@ export interface Payment {
   verificationStatus: PaymentVerificationStatus;
   verifiedById: string | null;
   verifiedAt: string | null;
+  verificationNote: string | null;
 }
 
 export interface Invoice {
@@ -61,6 +62,7 @@ export interface Project {
   status: ProjectStatus;
   totalPriceIdr: number | null;
   minDpPercent: number | null;
+  clientOwnerId: string | null;
   totalPaidIdr: number;
   paymentStatus: PaymentStatus;
   payments: Payment[];
@@ -106,6 +108,10 @@ export interface RevisionRequestRecord {
   round: number;
   createdById: string;
   createdAt: string;
+  billable: boolean | null;
+  classifiedById: string | null;
+  classifiedAt: string | null;
+  classificationNote: string | null;
 }
 
 export interface Task {

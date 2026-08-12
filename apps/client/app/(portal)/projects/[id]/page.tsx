@@ -10,12 +10,14 @@ import {
   PAYMENT_TYPE_LABEL,
   PAYMENT_VERIFICATION_LABEL,
   PAYMENT_VERIFICATION_TONE,
+  revisionClassificationLabel,
+  revisionClassificationTone,
   TASK_STATUS_LABEL,
   TASK_STATUS_TONE,
 } from "@/lib/status";
 import { Badge, Button, Card, Input, Label, Select, SectionTitle, Textarea } from "@/components/ui";
 import { ExternalLinkIcon, PlusIcon } from "@/components/icons";
-import type { PaymentType, Project, Task } from "@/lib/types";
+import type { PaymentType, Project, RevisionRequestRecord, Task } from "@/lib/types";
 
 function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -24,6 +26,23 @@ function readAsDataUrl(file: File): Promise<string> {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function RevisionHistory({ requests }: { requests: RevisionRequestRecord[] }) {
+  if (requests.length === 0) return null;
+  return (
+    <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+      {requests.map((r) => (
+        <div key={r.id} className="flex items-start justify-between gap-3 text-xs">
+          <div className="min-w-0">
+            <span className="font-medium text-ink">Revisi #{r.round}:</span>{" "}
+            <span className="text-ink-muted">{r.note}</span>
+          </div>
+          <Badge tone={revisionClassificationTone(r.billable)}>{revisionClassificationLabel(r.billable)}</Badge>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function TaskReviewCard({ task, onDone }: { task: Task; onDone: () => void }) {
@@ -83,6 +102,8 @@ function TaskReviewCard({ task, onDone }: { task: Task; onDone: () => void }) {
         </a>
       )}
       {latestDeliverable?.note && <p className="mt-1 text-xs text-ink-muted">{latestDeliverable.note}</p>}
+
+      <RevisionHistory requests={task.revisionRequests} />
 
       {error && <p className="mt-2 text-sm text-danger">{error}</p>}
 
@@ -177,7 +198,7 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <Link href="/" className="text-xs font-medium text-ink-muted hover:text-ink">
+        <Link href="/home" className="text-xs font-medium text-ink-muted hover:text-ink">
           ← Semua proyek
         </Link>
         <div className="mt-1 flex items-center justify-between gap-3">
@@ -304,6 +325,9 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
                     {PAYMENT_TYPE_LABEL[pay.type]} · {pay.method}
                   </div>
                   <div className="text-xs text-ink-muted">{formatDate(pay.createdAt)}</div>
+                  {pay.verificationStatus === "REJECTED" && pay.verificationNote && (
+                    <div className="mt-0.5 text-xs text-danger">Alasan: {pay.verificationNote}</div>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <span className="text-sm font-semibold tabular-nums text-ink">{formatIdr(pay.amountIdr)}</span>
@@ -322,9 +346,12 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
           <SectionTitle>Tugas lain</SectionTitle>
           <div className="flex flex-col divide-y divide-border">
             {otherTasks.map((t) => (
-              <div key={t.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                <div className="truncate text-sm font-medium text-ink">{t.title}</div>
-                <Badge tone={TASK_STATUS_TONE[t.status]}>{TASK_STATUS_LABEL[t.status]}</Badge>
+              <div key={t.id} className="py-3 first:pt-0 last:pb-0">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="truncate text-sm font-medium text-ink">{t.title}</div>
+                  <Badge tone={TASK_STATUS_TONE[t.status]}>{TASK_STATUS_LABEL[t.status]}</Badge>
+                </div>
+                <RevisionHistory requests={t.revisionRequests} />
               </div>
             ))}
           </div>
