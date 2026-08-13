@@ -1,10 +1,12 @@
-import { ConflictException, Injectable } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import * as argon2 from "argon2";
 import { randomBytes } from "crypto";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthenticatedUser } from "../common/decorators/current-user.decorator";
 import { CreateUserDto } from "./dto/create-user.dto";
+import { UpdateProfileDto } from "./dto/update-profile.dto";
+import { ChangePasswordDto } from "./dto/change-password.dto";
 
 @Injectable()
 export class UsersService {
@@ -53,5 +55,35 @@ export class UsersService {
       }
       throw err;
     }
+  }
+
+  /** RLS scopes this to the caller's own tenant, but the id itself already pins it to one row -- the caller's own. */
+  async findMe(userId: string) {
+    const user = await this.prisma.client.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true, role: true, createdAt: true },
+    });
+    if (!user) throw new NotFoundException("User not found");
+    return user;
+  }
+
+  /** Name only -- email changes would need re-verification, which isn't built. */
+  async updateMe(userId: string, dto: UpdateProfileDto) {
+    return this.prisma.client.user.update({
+      where: { id: userId },
+      data: { name: dto.name },
+      select: { id: true, email: true, name: true, role: true, createdAt: true },
+    });
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.client.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException("User not found");
+    if (!(await argon2.verify(user.passwordHash, dto.currentPassword))) {
+      throw new UnauthorizedException("Kata sandi saat ini salah.");
+    }
+    const passwordHash = await argon2.hash(dto.newPassword);
+    await this.prisma.client.user.update({ where: { id: userId }, data: { passwordHash } });
+    return { success: true };
   }
 }

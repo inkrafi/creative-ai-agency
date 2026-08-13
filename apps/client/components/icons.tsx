@@ -148,3 +148,47 @@ export function DocumentIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function UserIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="10" cy="7" r="3.3" />
+      <path d="M3.5 17c0-3.1 2.9-5.5 6.5-5.5s6.5 2.4 6.5 5.5" />
+    </svg>
+  );
+}
+
+export function HistoryIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M3.5 10a6.5 6.5 0 1 0 2-4.7" />
+      <path d="M2.5 3v3.5H6" />
+      <path d="M10 6.5V10l2.5 1.5" />
+    </svg>
+  );
+}
+
+export function MenuIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M3 6h14M3 10h14M3 14h14" />
+    </svg>
+  );
+}
+
+export function XIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M5 5l10 10M15 5 5 15" />
+    </svg>
+  );
+}
+
+export function LockIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="4.5" y="9" width="11" height="8" rx="1.5" />
+      <path d="M6.5 9V6.5a3.5 3.5 0 0 1 7 0V9" />
+    </svg>
+  );
+}

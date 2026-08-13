@@ -26,6 +26,9 @@ export interface AppUser {
   createdAt: string;
 }
 
+/** GET/PATCH /users/me -- the client portal's own profile page. */
+export type UserProfile = AppUser;
+
 export interface Payment {
   id: string;
   projectId: string;
@@ -68,6 +71,7 @@ export interface Project {
   totalPaidIdr: number;
   paymentStatus: PaymentStatus;
   payments: Payment[];
+  invoices: Invoice[];
   createdAt: string;
   updatedAt: string;
 }
@@ -95,6 +99,9 @@ export interface Brief {
   createdById: string;
   createdAt: string;
   updatedAt: string;
+  // Only present on the unfiltered (cross-project) GET /briefs response --
+  // see BriefsService.findAll()'s comment.
+  project?: { name: string };
 }
 
 export interface Deliverable {

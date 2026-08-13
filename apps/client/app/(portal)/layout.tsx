@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { Topbar } from "@/components/topbar";
+import { AppShell } from "@/components/app-shell";
 
 export default function PortalLayout({ children }: LayoutProps<"/">) {
   const { status, user, logout } = useAuth();
@@ -35,10 +35,5 @@ export default function PortalLayout({ children }: LayoutProps<"/">) {
     );
   }
 
-  return (
-    <div className="min-h-screen">
-      <Topbar />
-      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6">{children}</main>
-    </div>
-  );
+  return <AppShell>{children}</AppShell>;
 }

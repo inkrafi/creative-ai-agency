@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { api, clearToken, getToken, setToken } from "./api";
-import type { Organization, Role } from "./types";
+import type { Organization, Role, UserProfile } from "./types";
 
 interface JwtClaims {
   sub: string;
@@ -27,8 +27,11 @@ interface AuthState {
   status: "loading" | "authenticated" | "unauthenticated";
   user: JwtClaims | null;
   organization: Organization | null;
+  profile: UserProfile | null;
   login: (token: string) => Promise<void>;
   logout: () => void;
+  /** Re-fetches /users/me -- called after the profile page saves a name change so the sidebar/greeting update without a full reload. */
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -38,6 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthState["status"]>("loading");
   const [user, setUser] = useState<JwtClaims | null>(null);
   const [organization, setOrganization] = useState<Organization | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
 
   async function hydrate(token: string) {
     const claims = decodeJwt(token);
@@ -47,15 +51,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const org = await api<Organization>("/organizations/me");
+      const [org, me] = await Promise.all([
+        api<Organization>("/organizations/me"),
+        api<UserProfile>("/users/me"),
+      ]);
       setUser(claims);
       setOrganization(org);
+      setProfile(me);
       setStatus("authenticated");
     } catch {
       // Token rejected by the API (expired/invalid) -- same as never logging in.
       clearToken();
       setStatus("unauthenticated");
     }
+  }
+
+  async function refreshProfile() {
+    setProfile(await api<UserProfile>("/users/me"));
   }
 
   useEffect(() => {
@@ -77,12 +89,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearToken();
     setUser(null);
     setOrganization(null);
+    setProfile(null);
     setStatus("unauthenticated");
     router.push("/login");
   }
 
   return (
-    <AuthContext.Provider value={{ status, user, organization, login, logout }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ status, user, organization, profile, login, logout, refreshProfile }}>
+      {children}
+    </AuthContext.Provider>
   );
 }
 

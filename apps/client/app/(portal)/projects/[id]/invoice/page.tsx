@@ -30,7 +30,7 @@ export default function InvoicePage({ params }: PageProps<"/projects/[id]/invoic
 
   if (invoices.length === 0) {
     return (
-      <div className="flex flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
         <Link href={`/projects/${id}`} className="text-xs font-medium text-ink-muted hover:text-ink">
           ← Proyek
         </Link>
@@ -45,7 +45,7 @@ export default function InvoicePage({ params }: PageProps<"/projects/[id]/invoic
   const remaining = project.totalPriceIdr !== null ? Math.max(project.totalPriceIdr - project.totalPaidIdr, 0) : null;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <div className="flex items-center justify-between print:hidden">
         <Link href={`/projects/${id}`} className="text-xs font-medium text-ink-muted hover:text-ink">
           ← Proyek

@@ -106,7 +106,7 @@ export default function ClientBriefDetailPage({ params }: PageProps<"/projects/[
   if (!brief) return <p className="text-sm text-ink-muted">Memuat…</p>;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <div>
         <Link href={`/projects/${id}`} className="text-xs font-medium text-ink-muted hover:text-ink">
           ← Proyek

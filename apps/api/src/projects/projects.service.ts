@@ -63,13 +63,14 @@ export class ProjectsService {
     const projects = await this.prisma.client.project.findMany({
       where: isClient ? { clientOwnerId: user.userId } : undefined,
       orderBy: { createdAt: "desc" },
-      include: { payments: true },
+      include: { payments: true, invoices: { orderBy: { createdAt: "desc" } } },
     });
     // Same derivation as findOne(), applied per row -- the list/finance
     // views need payment status without an N+1 findOne() per project.
-    // `payments` stays on the returned object (not just used to derive
-    // totalPaidIdr) -- callers like the finance dashboard flatten payments
-    // across projects for a combined recent-activity view.
+    // `payments`/`invoices` stay on the returned object (not just used to
+    // derive totalPaidIdr) -- callers like the client portal's Riwayat page
+    // and the finance dashboard flatten these across projects for a
+    // combined history view without an N+1 call per project.
     return projects.map((project) => {
       const totalPaidIdr = sumVerified(project.payments);
       return { ...project, totalPaidIdr, paymentStatus: paymentStatusFor(project.totalPriceIdr, totalPaidIdr) };

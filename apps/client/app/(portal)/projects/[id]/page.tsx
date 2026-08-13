@@ -207,7 +207,7 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
   ];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <div>
         <Link href="/home" className="text-xs font-medium text-ink-muted hover:text-ink">
           ← Semua proyek

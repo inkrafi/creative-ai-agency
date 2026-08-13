@@ -87,6 +87,10 @@ export class BriefsService {
         ...(isClient && !projectId ? { project: { clientOwnerId: user.userId } } : {}),
       },
       orderBy: { createdAt: "desc" },
+      // Only needed for the unfiltered (cross-project) call -- the client
+      // portal's Daftar Brief page needs to show which project each brief
+      // belongs to since there's no projectId in scope on that view.
+      include: { project: { select: { name: true } } },
     });
   }
 

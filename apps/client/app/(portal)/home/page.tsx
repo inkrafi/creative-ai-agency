@@ -2,263 +2,147 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { formatIdr, formatRelative } from "@/lib/format";
-import { PAYMENT_STATUS_LABEL, PAYMENT_STATUS_TONE, PROJECT_STATUS_LABEL } from "@/lib/status";
+import { PAYMENT_STATUS_LABEL, PAYMENT_STATUS_TONE } from "@/lib/status";
 import { useAuth } from "@/lib/auth";
-import { Badge, Button, Card, Input, Label, SectionTitle, Textarea } from "@/components/ui";
-import { SuccessDialog } from "@/components/success-dialog";
-import { ChevronRightIcon, PlusIcon } from "@/components/icons";
-import type { Brief, Invoice, Project, Task } from "@/lib/types";
+import { ACTIVITY_DOT_TONE, buildActivity, type ActivityItem } from "@/lib/activity";
+import { Badge, Button, Card, SectionTitle } from "@/components/ui";
+import { ChevronRightIcon, ClockIcon, FolderIcon, PlusIcon } from "@/components/icons";
+import type { Project } from "@/lib/types";
 
-interface ActivityItem {
-  id: string;
-  timestamp: string;
-  projectId: string;
-  projectName: string;
-  message: string;
-  tone: "neutral" | "success" | "warning" | "danger";
-  href?: string;
-}
-
-async function buildActivity(projects: Project[]): Promise<ActivityItem[]> {
-  const items: ActivityItem[] = [];
-
-  await Promise.all(
-    projects.map(async (p) => {
-      const [invoices, tasks, briefs] = await Promise.all([
-        api<Invoice[]>(`/projects/${p.id}/invoices`),
-        api<Task[]>(`/tasks?projectId=${p.id}`),
-        api<Brief[]>(`/briefs?projectId=${p.id}`),
-      ]);
-
-      for (const b of briefs) {
-        if (b.needsClarification) {
-          items.push({
-            id: `brief-clarification-${b.id}`,
-            timestamp: b.updatedAt,
-            projectId: p.id,
-            projectName: p.name,
-            message: `Tim Kravio butuh info tambahan soal "${b.title}"`,
-            tone: "warning",
-            href: `/projects/${p.id}/briefs/${b.id}`,
-          });
-        }
-      }
-
-      for (const inv of invoices) {
-        items.push({
-          id: `invoice-${inv.id}`,
-          timestamp: inv.createdAt,
-          projectId: p.id,
-          projectName: p.name,
-          message: `Invoice terkirim — ${formatIdr(inv.amountIdr)}`,
-          tone: "neutral",
-        });
-      }
-
-      for (const pay of p.payments) {
-        if (pay.verificationStatus === "VERIFIED" && pay.verifiedAt) {
-          items.push({
-            id: `payment-verified-${pay.id}`,
-            timestamp: pay.verifiedAt,
-            projectId: p.id,
-            projectName: p.name,
-            message: `Pembayaran ${formatIdr(pay.amountIdr)} terverifikasi`,
-            tone: "success",
-          });
-        } else if (pay.verificationStatus === "REJECTED" && pay.verifiedAt) {
-          items.push({
-            id: `payment-rejected-${pay.id}`,
-            timestamp: pay.verifiedAt,
-            projectId: p.id,
-            projectName: p.name,
-            message: `Pembayaran ${formatIdr(pay.amountIdr)} ditolak${pay.verificationNote ? `: ${pay.verificationNote}` : ""}`,
-            tone: "danger",
-          });
-        }
-      }
-
-      for (const t of tasks) {
-        if (t.status === "IN_REVIEW") {
-          items.push({
-            id: `task-review-${t.id}`,
-            timestamp: t.updatedAt,
-            projectId: p.id,
-            projectName: p.name,
-            message: `"${t.title}" siap untuk Anda review`,
-            tone: "warning",
-          });
-        }
-        for (const r of t.revisionRequests) {
-          if (r.billable === false && r.classifiedAt) {
-            items.push({
-              id: `revision-free-${r.id}`,
-              timestamp: r.classifiedAt,
-              projectId: p.id,
-              projectName: p.name,
-              message: `Revisi #${r.round} pada "${t.title}" ditandai gratis -- tidak memotong jatah revisi Anda`,
-              tone: "success",
-            });
-          }
-        }
-      }
-    }),
-  );
-
-  items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  return items.slice(0, 12);
-}
-
-const ACTIVITY_DOT_TONE: Record<ActivityItem["tone"], string> = {
-  neutral: "bg-ink-muted",
-  success: "bg-success",
-  warning: "bg-warning",
-  danger: "bg-danger",
-};
+const RECENT_PROJECTS_LIMIT = 3;
 
 export default function HomePage() {
-  const { user } = useAuth();
+  const { profile, user } = useAuth();
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [activity, setActivity] = useState<ActivityItem[] | null>(null);
 
-  const [showForm, setShowForm] = useState(false);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [successOpen, setSuccessOpen] = useState(false);
-  const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
-
-  function load() {
+  useEffect(() => {
     void api<Project[]>("/projects").then((list) => {
       setProjects(list);
-      if (list.length > 0) void buildActivity(list).then(setActivity);
+      if (list.length > 0) void buildActivity(list, 8).then(setActivity);
       else setActivity([]);
     });
-  }
-
-  useEffect(load, []);
+  }, []);
 
   const hasProjects = useMemo(() => (projects?.length ?? 0) > 0, [projects]);
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      const created = await api<Project>("/projects", {
-        method: "POST",
-        body: JSON.stringify({ name, description: description || undefined }),
-      });
-      setName("");
-      setDescription("");
-      setShowForm(false);
-      setCreatedProjectId(created.id);
-      setSuccessOpen(true);
-      load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Gagal membuat proyek.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
+  const activeCount = useMemo(() => projects?.filter((p) => p.status === "ACTIVE").length ?? 0, [projects]);
+  const needsAttentionCount = useMemo(
+    () => activity?.filter((a) => a.tone === "warning" || a.tone === "danger").length ?? 0,
+    [activity],
+  );
+  const displayName = profile?.name ?? user?.email ?? "";
+  const recentProjects = projects?.slice(0, RECENT_PROJECTS_LIMIT) ?? [];
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-navy-light via-navy to-[#061f38] px-6 py-7 sm:px-8">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -top-16 -right-10 h-48 w-48 rounded-full bg-accent/20 blur-3xl"
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -bottom-20 -left-16 h-56 w-56 rounded-full bg-brand/30 blur-3xl"
-        />
-        <div className="relative flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="text-xs font-medium text-white/60">Halo, {user?.email}</div>
-            <h1 className="mt-1 font-display text-2xl font-semibold text-balance text-white sm:text-3xl">
-              Proyek Anda
-            </h1>
-            <p className="mt-1.5 text-sm text-white/70">
-              {hasProjects
-                ? `${projects?.length ?? 0} proyek terhubung dengan akun Anda.`
-                : "Belum ada proyek -- mulai yang pertama sekarang."}
-            </p>
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px] lg:items-start">
+      <div className="flex flex-col gap-6">
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-navy-light via-navy to-[#061f38] px-6 py-7 sm:px-8">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -top-16 -right-10 h-48 w-48 rounded-full bg-accent/20 blur-3xl"
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -bottom-20 -left-16 h-56 w-56 rounded-full bg-brand/30 blur-3xl"
+          />
+          <div className="relative flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div className="text-xs font-medium text-white/60">Selamat datang kembali</div>
+              <h1 className="mt-1 font-display text-2xl font-semibold text-balance text-white sm:text-3xl">
+                Halo, {displayName}
+              </h1>
+              <p className="mt-1.5 text-sm text-white/70">
+                {hasProjects
+                  ? "Berikut ringkasan terbaru dari proyek-proyek Anda bersama Kravio."
+                  : "Belum ada proyek -- mulai yang pertama sekarang."}
+              </p>
+            </div>
+            <Link href="/projects">
+              <Button type="button" variant="accent">
+                <PlusIcon width={16} height={16} />
+                Proyek Baru
+              </Button>
+            </Link>
           </div>
-          <Button type="button" variant="accent" onClick={() => setShowForm((v) => !v)}>
-            <PlusIcon width={16} height={16} />
-            Proyek Baru
-          </Button>
         </div>
+
+        {projects === null ? (
+          <p className="text-sm text-ink-muted">Memuat…</p>
+        ) : !hasProjects ? (
+          <Card>
+            <p className="text-sm text-ink-muted">
+              Belum ada proyek. <Link href="/projects" className="font-medium text-brand hover:underline">Buat proyek pertama Anda</Link> untuk mulai mengajukan brief.
+            </p>
+          </Card>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <Card className="flex flex-col gap-1">
+                <div className="text-xs font-medium text-ink-muted">Proyek Aktif</div>
+                <div className="text-2xl font-semibold tabular-nums text-ink">{activeCount}</div>
+              </Card>
+              <Card className="flex flex-col gap-1">
+                <div className="text-xs font-medium text-ink-muted">Total Proyek</div>
+                <div className="text-2xl font-semibold tabular-nums text-ink">{projects.length}</div>
+              </Card>
+              <Card className="col-span-2 flex flex-col gap-1 sm:col-span-1">
+                <div className="text-xs font-medium text-ink-muted">Perlu Perhatian</div>
+                <div className={`text-2xl font-semibold tabular-nums ${needsAttentionCount > 0 ? "text-warning" : "text-ink"}`}>
+                  {needsAttentionCount}
+                </div>
+              </Card>
+            </div>
+
+            <Card>
+              <SectionTitle
+                action={
+                  <Link href="/projects" className="text-xs font-medium text-brand hover:underline">
+                    Lihat semua
+                  </Link>
+                }
+              >
+                <span className="flex items-center gap-2">
+                  <FolderIcon width={16} height={16} className="text-brand" />
+                  Proyek Terbaru
+                </span>
+              </SectionTitle>
+              <div className="flex flex-col divide-y divide-border">
+                {recentProjects.map((p) => (
+                  <Link
+                    key={p.id}
+                    href={`/projects/${p.id}`}
+                    className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0 hover:bg-surface-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-ink">{p.name}</div>
+                      {p.totalPriceIdr !== null && (
+                        <div className="mt-0.5 text-xs tabular-nums text-ink-muted">
+                          {formatIdr(p.totalPaidIdr)} / {formatIdr(p.totalPriceIdr)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Badge tone={PAYMENT_STATUS_TONE[p.paymentStatus]}>{PAYMENT_STATUS_LABEL[p.paymentStatus]}</Badge>
+                      <ChevronRightIcon width={16} height={16} className="text-ink-muted" />
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </Card>
+          </>
+        )}
       </div>
 
-      {showForm && (
-        <Card>
-          <form onSubmit={handleCreate} className="flex flex-col gap-4">
-            <div>
-              <Label>Nama proyek</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Website Toko Kopi Senja" />
-            </div>
-            <div>
-              <Label>Deskripsi (opsional)</Label>
-              <Textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-                placeholder="Ringkasan singkat proyek ini"
-              />
-            </div>
-            {error && <p className="text-sm text-danger">{error}</p>}
-            <div className="flex gap-2">
-              <Button type="submit" disabled={submitting}>
-                {submitting ? "Menyimpan…" : "Simpan"}
-              </Button>
-              <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
-                Batal
-              </Button>
-            </div>
-          </form>
-        </Card>
-      )}
-
-      {projects === null ? (
-        <p className="text-sm text-ink-muted">Memuat…</p>
-      ) : !hasProjects ? (
-        <Card>
-          <p className="text-sm text-ink-muted">Belum ada proyek. Buat proyek pertama Anda untuk mulai mengajukan brief.</p>
-        </Card>
-      ) : (
-        <div className="flex flex-col divide-y divide-border rounded-2xl border border-border bg-surface">
-          {projects.map((p) => (
-            <Link
-              key={p.id}
-              href={`/projects/${p.id}`}
-              className="flex items-center justify-between gap-3 px-5 py-4 hover:bg-surface-2"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-ink">{p.name}</div>
-                {p.description && <div className="truncate text-xs text-ink-muted">{p.description}</div>}
-                {p.totalPriceIdr !== null && (
-                  <div className="mt-0.5 text-xs tabular-nums text-ink-muted">
-                    {formatIdr(p.totalPaidIdr)} / {formatIdr(p.totalPriceIdr)}
-                  </div>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <Badge tone={PAYMENT_STATUS_TONE[p.paymentStatus]}>{PAYMENT_STATUS_LABEL[p.paymentStatus]}</Badge>
-                <Badge>{PROJECT_STATUS_LABEL[p.status]}</Badge>
-                <ChevronRightIcon width={16} height={16} className="text-ink-muted" />
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
-
       {hasProjects && (
-        <Card>
-          <SectionTitle>Aktivitas Terbaru</SectionTitle>
+        <Card className="lg:sticky lg:top-6">
+          <SectionTitle>
+            <span className="flex items-center gap-2">
+              <ClockIcon width={16} height={16} className="text-brand" />
+              Aktivitas Terbaru
+            </span>
+          </SectionTitle>
           {activity === null ? (
             <p className="text-sm text-ink-muted">Memuat…</p>
           ) : activity.length === 0 ? (
@@ -284,15 +168,6 @@ export default function HomePage() {
           )}
         </Card>
       )}
-
-      <SuccessDialog
-        open={successOpen}
-        title="Proyek berhasil dibuat!"
-        message="Sekarang Anda bisa mengajukan brief untuk proyek ini kapan saja."
-        actionLabel="Tutup"
-        onClose={() => setSuccessOpen(false)}
-        secondaryAction={createdProjectId ? { label: "Buka Proyek", href: `/projects/${createdProjectId}` } : undefined}
-      />
     </div>
   );
 }
