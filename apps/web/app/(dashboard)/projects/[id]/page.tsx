@@ -34,6 +34,10 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   const [priceSubmitting, setPriceSubmitting] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
 
+  const [deadlineInput, setDeadlineInput] = useState("");
+  const [deadlineSubmitting, setDeadlineSubmitting] = useState(false);
+  const [deadlineError, setDeadlineError] = useState<string | null>(null);
+
   const [paymentType, setPaymentType] = useState<PaymentType>("DP");
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
@@ -56,6 +60,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
       .then((p) => {
         setProject(p);
         setPriceInput(p.totalPriceIdr !== null ? String(p.totalPriceIdr) : "");
+        setDeadlineInput(p.targetCompletionDate ? p.targetCompletionDate.slice(0, 10) : "");
       })
       .catch((err) => {
         if (err instanceof ApiError && err.status === 404) setNotFound(true);
@@ -85,6 +90,23 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
       setAssignError(err instanceof ApiError ? err.message : "Gagal menautkan klien.");
     } finally {
       setAssigning(false);
+    }
+  }
+
+  async function handleSetDeadline(e: React.FormEvent) {
+    e.preventDefault();
+    setDeadlineSubmitting(true);
+    setDeadlineError(null);
+    try {
+      await api(`/projects/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ targetCompletionDate: deadlineInput }),
+      });
+      load();
+    } catch (err) {
+      setDeadlineError(err instanceof ApiError ? err.message : "Gagal menyimpan target selesai.");
+    } finally {
+      setDeadlineSubmitting(false);
     }
   }
 
@@ -245,6 +267,22 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
               </div>
             )}
           </div>
+
+          {canManage && (
+            <form onSubmit={handleSetDeadline} className="mt-4 flex items-end gap-2 border-t border-border pt-4">
+              <div className="flex-1">
+                <Label>Target selesai (opsional)</Label>
+                <Input type="date" value={deadlineInput} onChange={(e) => setDeadlineInput(e.target.value)} />
+                <p className="mt-1 text-xs text-ink-muted">
+                  Perkiraan untuk klien, bukan komitmen kontraktual yang mengunci apa pun.
+                </p>
+              </div>
+              <Button type="submit" disabled={deadlineSubmitting}>
+                {deadlineSubmitting ? "…" : "Simpan"}
+              </Button>
+            </form>
+          )}
+          {deadlineError && <p className="mt-2 text-sm text-danger">{deadlineError}</p>}
         </Card>
 
         {canManage && (

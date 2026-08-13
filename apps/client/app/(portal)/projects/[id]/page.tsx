@@ -211,6 +211,11 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
           </Link>
         </div>
         {project.description && <p className="mt-1.5 text-sm text-ink-muted">{project.description}</p>}
+        {project.targetCompletionDate && (
+          <p className="mt-1.5 text-xs text-ink-muted">
+            Target selesai: <span className="font-medium text-ink">{formatDate(project.targetCompletionDate)}</span>
+          </p>
+        )}
       </div>
 
       {needsReview.length > 0 && (

@@ -1,5 +1,5 @@
 import { PartialType } from "@nestjs/mapped-types";
-import { IsEnum, IsInt, IsOptional, IsUUID, Min } from "class-validator";
+import { IsEnum, IsISO8601, IsInt, IsOptional, IsUUID, Min } from "class-validator";
 import { ProjectStatus } from "@prisma/client";
 import { CreateProjectDto } from "./create-project.dto";
 
@@ -22,4 +22,10 @@ export class UpdateProjectDto extends PartialType(CreateProjectDto) {
   @IsOptional()
   @IsUUID()
   clientOwnerId?: string;
+
+  // An expectation-setter shown on the client's project view, not an
+  // enforced SLA -- see Project.targetCompletionDate's schema comment.
+  @IsOptional()
+  @IsISO8601()
+  targetCompletionDate?: string;
 }

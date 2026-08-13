@@ -148,7 +148,19 @@ export class ProjectsService {
 
   async update(id: string, dto: UpdateProjectDto) {
     await this.findOne(id);
-    await this.prisma.client.project.update({ where: { id }, data: dto });
+    await this.prisma.client.project.update({
+      where: { id },
+      // targetCompletionDate arrives as a plain "YYYY-MM-DD" string from
+      // the DTO (an <input type="date">'s native format) -- Prisma's
+      // DateTime coercion needs a full ISO-8601 datetime or a Date object,
+      // not a bare date, so it's converted here rather than widening the
+      // DTO's validation to demand a datetime the frontend has no reason
+      // to send.
+      data: {
+        ...dto,
+        targetCompletionDate: dto.targetCompletionDate !== undefined ? new Date(dto.targetCompletionDate) : undefined,
+      },
+    });
     // Re-fetch through findOne() rather than returning the bare update()
     // result, so the response always carries totalPaidIdr/paymentStatus --
     // callers (e.g. setting totalPriceIdr) need the recomputed status

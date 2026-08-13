@@ -133,6 +133,25 @@ describe("Project payments (e2e)", () => {
     expect(afterPelunasan.body.payments).toHaveLength(2);
   });
 
+  it("staff can set and clear a target completion date -- it never affects payment status", async () => {
+    const token = await signup();
+    const project = await createProject(token);
+
+    const initial = await request(app.getHttpServer())
+      .get(`/projects/${project.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    expect(initial.body.targetCompletionDate).toBeNull();
+
+    const withDeadline = await request(app.getHttpServer())
+      .patch(`/projects/${project.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ targetCompletionDate: "2026-12-31" })
+      .expect(200);
+    expect(new Date(withDeadline.body.targetCompletionDate).toISOString().slice(0, 10)).toBe("2026-12-31");
+    expect(withDeadline.body.paymentStatus).toBe("NO_PRICE");
+  });
+
   it("rejects a non-positive amount", async () => {
     const token = await signup();
     const project = await createProject(token);

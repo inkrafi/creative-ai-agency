@@ -62,6 +62,7 @@ export interface Project {
   status: ProjectStatus;
   totalPriceIdr: number | null;
   minDpPercent: number | null;
+  targetCompletionDate: string | null;
   clientOwnerId: string | null;
   totalPaidIdr: number;
   paymentStatus: PaymentStatus;

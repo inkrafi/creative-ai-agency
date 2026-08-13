@@ -173,6 +173,10 @@ an agency already tracks this outside any system. Lives on
   than a client-facing IDR total). Nullable: usually agreed after the
   initial brief discussion, not known at project creation. Set via
   `PATCH /projects/:id`.
+- `Project.targetCompletionDate` — an optional expectation-setter, also set
+  via `PATCH /projects/:id` (accepts a plain `"YYYY-MM-DD"` string, or a
+  full ISO datetime). Purely informational: shown to the client on their
+  project page, nothing enforces or alerts against it being missed.
 - `POST /projects/:id/payments` — records one `Payment` row. Body:
   `{ type: "DP" | "PELUNASAN" | "OTHER", amountIdr: number, method: string, note?: string }`.
   Blocked with `400` if `totalPriceIdr` hasn't been set yet -- recording a
