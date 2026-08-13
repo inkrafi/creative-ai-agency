@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { GenerationJobStatus, Prisma, Role, TaskStatus } from "@prisma/client";
 import { Observable } from "rxjs";
 import { MessageEvent } from "@nestjs/common";
@@ -8,6 +8,8 @@ import { CreditLedgerService } from "../generation/credit-ledger.service";
 import { AuthenticatedUser } from "../common/decorators/current-user.decorator";
 import { assertClientOwnsProject } from "../common/client-project-access";
 import { CreateBriefDto } from "./dto/create-brief.dto";
+import { UpdateBriefDto } from "./dto/update-brief.dto";
+import { RequestClarificationDto } from "./dto/request-clarification.dto";
 import { BRIEF_SYSTEM_PROMPTS, formatBriefPrompt, validateBriefContext } from "./brief-context";
 import {
   formatPricePrompt,
@@ -99,6 +101,48 @@ export class BriefsService {
     const brief = await this.findOne(id);
     await assertClientOwnsProject(this.prisma, brief.projectId, user);
     return brief;
+  }
+
+  /**
+   * Sends a brief back to the client for more info instead of guessing at
+   * a price for something too vague to estimate. Re-callable (a staff
+   * member can ask again after a client's response still isn't enough) --
+   * each call overwrites clarificationNote and resets
+   * clarificationRespondedAt to null.
+   */
+  async requestClarification(id: string, dto: RequestClarificationDto) {
+    await this.findOne(id);
+    return this.prisma.client.brief.update({
+      where: { id },
+      data: { needsClarification: true, clarificationNote: dto.note, clarificationRespondedAt: null },
+    });
+  }
+
+  /**
+   * The client's response to a clarification request -- only usable while
+   * a brief is actually awaiting one, checked *after* the ownership
+   * assertion so a non-owner gets the same 404 as any other client-
+   * reachable path, not a 400 that would confirm the brief exists.
+   * clarificationNote is deliberately left in place (not cleared) as a
+   * historical record of what staff asked for.
+   */
+  async update(id: string, user: AuthenticatedUser, dto: UpdateBriefDto) {
+    const brief = await this.findOneForClient(id, user);
+    if (!brief.needsClarification) {
+      throw new BadRequestException("Brief ini tidak sedang menunggu klarifikasi.");
+    }
+    validateBriefContext(brief.type, dto.context);
+    const instructions = formatBriefPrompt(brief.type, dto.context);
+
+    return this.prisma.client.brief.update({
+      where: { id },
+      data: {
+        context: dto.context as Prisma.InputJsonValue,
+        instructions,
+        needsClarification: false,
+        clarificationRespondedAt: new Date(),
+      },
+    });
   }
 
   /**

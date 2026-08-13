@@ -8,7 +8,7 @@ import { PAYMENT_STATUS_LABEL, PAYMENT_STATUS_TONE, PROJECT_STATUS_LABEL } from 
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Input, Label, SectionTitle, Textarea } from "@/components/ui";
 import { ChevronRightIcon, PlusIcon } from "@/components/icons";
-import type { Invoice, Project, Task } from "@/lib/types";
+import type { Brief, Invoice, Project, Task } from "@/lib/types";
 
 interface ActivityItem {
   id: string;
@@ -17,6 +17,7 @@ interface ActivityItem {
   projectName: string;
   message: string;
   tone: "neutral" | "success" | "warning" | "danger";
+  href?: string;
 }
 
 async function buildActivity(projects: Project[]): Promise<ActivityItem[]> {
@@ -24,10 +25,25 @@ async function buildActivity(projects: Project[]): Promise<ActivityItem[]> {
 
   await Promise.all(
     projects.map(async (p) => {
-      const [invoices, tasks] = await Promise.all([
+      const [invoices, tasks, briefs] = await Promise.all([
         api<Invoice[]>(`/projects/${p.id}/invoices`),
         api<Task[]>(`/tasks?projectId=${p.id}`),
+        api<Brief[]>(`/briefs?projectId=${p.id}`),
       ]);
+
+      for (const b of briefs) {
+        if (b.needsClarification) {
+          items.push({
+            id: `brief-clarification-${b.id}`,
+            timestamp: b.updatedAt,
+            projectId: p.id,
+            projectName: p.name,
+            message: `Tim Kravio butuh info tambahan soal "${b.title}"`,
+            tone: "warning",
+            href: `/projects/${p.id}/briefs/${b.id}`,
+          });
+        }
+      }
 
       for (const inv of invoices) {
         items.push({
@@ -230,7 +246,7 @@ export default function HomePage() {
               {activity.map((item) => (
                 <Link
                   key={item.id}
-                  href={`/projects/${item.projectId}`}
+                  href={item.href ?? `/projects/${item.projectId}`}
                   className="flex items-start gap-3 py-3 first:pt-0 last:pb-0 hover:bg-surface-2"
                 >
                   <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${ACTIVITY_DOT_TONE[item.tone]}`} />

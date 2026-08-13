@@ -88,8 +88,12 @@ export interface Brief {
   instructions: string;
   aiSuggestedPriceIdr: number | null;
   aiPriceReasoning: string | null;
+  needsClarification: boolean;
+  clarificationNote: string | null;
+  clarificationRespondedAt: string | null;
   createdById: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface Deliverable {

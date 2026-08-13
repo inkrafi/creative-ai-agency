@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Param, Post, Query, Sse } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, Sse } from "@nestjs/common";
 import { Observable } from "rxjs";
 import { MessageEvent } from "@nestjs/common";
 import { Role } from "@prisma/client";
 import { BriefsService } from "./briefs.service";
 import { CreateBriefDto } from "./dto/create-brief.dto";
+import { UpdateBriefDto } from "./dto/update-brief.dto";
+import { RequestClarificationDto } from "./dto/request-clarification.dto";
 import { CurrentUser, AuthenticatedUser } from "../common/decorators/current-user.decorator";
 import { Roles } from "../common/decorators/roles.decorator";
 
@@ -28,6 +30,24 @@ export class BriefsController {
   @Get(":id")
   findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.briefsService.findOneForClient(id, user);
+  }
+
+  // Client's response to a clarification request -- CLIENT_APPROVER only
+  // (deciding what the brief now says, not just viewing it), same rule as
+  // create(). Ownership + needsClarification are both checked in the
+  // service.
+  @Roles(Role.CLIENT_APPROVER)
+  @Patch(":id")
+  update(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateBriefDto) {
+    return this.briefsService.update(id, user, dto);
+  }
+
+  // Staff-only: sends the brief back to the client with a question instead
+  // of pricing something too vague to estimate.
+  @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR)
+  @Patch(":id/request-clarification")
+  requestClarification(@Param("id") id: string, @Body() dto: RequestClarificationDto) {
+    return this.briefsService.requestClarification(id, dto);
   }
 
   @Roles(Role.AGENCY_ADMIN, Role.AGENCY_EDITOR)

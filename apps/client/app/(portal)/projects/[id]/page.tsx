@@ -17,7 +17,7 @@ import {
 } from "@/lib/status";
 import { Badge, Button, Card, Input, Label, Select, SectionTitle, Textarea } from "@/components/ui";
 import { ExternalLinkIcon, PlusIcon } from "@/components/icons";
-import type { PaymentType, Project, RevisionRequestRecord, Task } from "@/lib/types";
+import type { Brief, PaymentType, Project, RevisionRequestRecord, Task } from "@/lib/types";
 
 function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -139,6 +139,7 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
 
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [briefs, setBriefs] = useState<Brief[]>([]);
   const [notFound, setNotFound] = useState(false);
 
   const [paymentType, setPaymentType] = useState<PaymentType>("DP");
@@ -158,6 +159,7 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
         if (err instanceof ApiError && err.status === 404) setNotFound(true);
       });
     void api<Task[]>(`/tasks?projectId=${id}`).then(setTasks);
+    void api<Brief[]>(`/briefs?projectId=${id}`).then(setBriefs);
   }
 
   useEffect(load, [id]);
@@ -217,6 +219,18 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
           </p>
         )}
       </div>
+
+      {briefs
+        .filter((b) => b.needsClarification)
+        .map((b) => (
+          <Link key={b.id} href={`/projects/${id}/briefs/${b.id}`}>
+            <Card className="border-warning/40 bg-warning-bg/40">
+              <div className="text-sm font-semibold text-ink">Tim Kravio butuh info tambahan soal &quot;{b.title}&quot;</div>
+              <p className="mt-1 text-sm text-ink-muted">{b.clarificationNote}</p>
+              <p className="mt-2 text-xs font-medium text-brand">Jawab sekarang →</p>
+            </Card>
+          </Link>
+        ))}
 
       {needsReview.length > 0 && (
         <div className="flex flex-col gap-4">

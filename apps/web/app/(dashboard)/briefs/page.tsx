@@ -45,7 +45,10 @@ export default function BriefsPage() {
       header: "Brief",
       render: (b) => (
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-ink">{b.title}</div>
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-medium text-ink">{b.title}</span>
+            {b.needsClarification && <Badge tone="warning">Menunggu klien</Badge>}
+          </div>
           <div className="truncate text-xs text-ink-muted">
             {projectNameById.get(b.projectId) ?? "Proyek tidak diketahui"} · {formatDate(b.createdAt)}
           </div>
@@ -101,6 +104,15 @@ export default function BriefsPage() {
         { value: "NO", label: "Belum ada" },
       ],
       getValue: (b) => (invoicedBriefIds.has(b.id) ? "YES" : "NO"),
+    },
+    {
+      key: "clarification",
+      label: "Klarifikasi",
+      options: [
+        { value: "YES", label: "Menunggu klien" },
+        { value: "NO", label: "Tidak menunggu" },
+      ],
+      getValue: (b) => (b.needsClarification ? "YES" : "NO"),
     },
   ];
 

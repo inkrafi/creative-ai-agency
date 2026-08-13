@@ -221,6 +221,97 @@ describe("Client portal flow (e2e)", () => {
     });
   });
 
+  describe("brief clarification loop", () => {
+    it("staff requests clarification, client responds, and the flag clears", async () => {
+      const { adminToken, token: approverToken, userId } = await signupWithRole(Role.CLIENT_APPROVER);
+      const project = await createProject(adminToken);
+      await assignClient(adminToken, project.id, userId);
+      const brief = await createBrief(approverToken, project.id);
+
+      const asked = await request(app.getHttpServer())
+        .patch(`/briefs/${brief.id}/request-clarification`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ note: "Target audiensnya siapa persisnya? Masih terlalu umum." })
+        .expect(200);
+      expect(asked.body).toMatchObject({
+        needsClarification: true,
+        clarificationNote: "Target audiensnya siapa persisnya? Masih terlalu umum.",
+      });
+      expect(asked.body.clarificationRespondedAt).toBeNull();
+
+      // Can't respond with a brief-shaped payload that's missing required fields.
+      await request(app.getHttpServer())
+        .patch(`/briefs/${brief.id}`)
+        .set("Authorization", `Bearer ${approverToken}`)
+        .send({ context: { businessType: "Local bakery" } })
+        .expect(400);
+
+      const responded = await request(app.getHttpServer())
+        .patch(`/briefs/${brief.id}`)
+        .set("Authorization", `Bearer ${approverToken}`)
+        .send({
+          context: {
+            businessType: "Local bakery",
+            targetAudience: "Keluarga muda di sekitar Kemang, usia 25-40",
+            painPoints: "No online presence",
+            goals: "Simple site with menu and location",
+          },
+        })
+        .expect(200);
+      expect(responded.body.needsClarification).toBe(false);
+      expect(responded.body.clarificationRespondedAt).not.toBeNull();
+      // The staff question stays on record even after it's answered.
+      expect(responded.body.clarificationNote).toMatch(/target audiensnya/i);
+      expect(responded.body.instructions).toMatch(/Kemang/);
+    });
+
+    it("rejects a client response when the brief isn't awaiting clarification", async () => {
+      const { adminToken, token: approverToken, userId } = await signupWithRole(Role.CLIENT_APPROVER);
+      const project = await createProject(adminToken);
+      await assignClient(adminToken, project.id, userId);
+      const brief = await createBrief(approverToken, project.id);
+
+      await request(app.getHttpServer())
+        .patch(`/briefs/${brief.id}`)
+        .set("Authorization", `Bearer ${approverToken}`)
+        .send({
+          context: {
+            businessType: "Local bakery",
+            targetAudience: "Neighborhood families",
+            painPoints: "No online presence",
+            goals: "Simple site with menu and location",
+          },
+        })
+        .expect(400);
+    });
+
+    it("only staff can request clarification; only CLIENT_APPROVER (not VIEWER) can respond", async () => {
+      const { adminToken, token: approverToken, userId } = await signupWithRole(Role.CLIENT_APPROVER);
+      const project = await createProject(adminToken);
+      await assignClient(adminToken, project.id, userId);
+      const brief = await createBrief(approverToken, project.id);
+
+      await request(app.getHttpServer())
+        .patch(`/briefs/${brief.id}/request-clarification`)
+        .set("Authorization", `Bearer ${approverToken}`)
+        .send({ note: "..." })
+        .expect(403);
+
+      await request(app.getHttpServer())
+        .patch(`/briefs/${brief.id}/request-clarification`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ note: "Perlu detail lebih lanjut" })
+        .expect(200);
+
+      const { token: viewerToken } = await signupWithRole(Role.CLIENT_VIEWER);
+      await request(app.getHttpServer())
+        .patch(`/briefs/${brief.id}`)
+        .set("Authorization", `Bearer ${viewerToken}`)
+        .send({ context: {} })
+        .expect(403);
+    });
+  });
+
   describe("POST /briefs/:id/suggest-price", () => {
     it("staff gets an AI suggestion that persists onto the brief; a client cannot trigger it", async () => {
       const { adminToken, token: approverToken, organizationId } = await signupWithRole(Role.CLIENT_APPROVER);

@@ -155,23 +155,34 @@ model Project {
 /// create time, not client-supplied) and kept so the exact prompt sent to
 /// the model is on record even if the formatting logic changes later.
 model Brief {
-  id                  String    @id @default(uuid()) @db.Uuid
-  organizationId      String    @map("organization_id") @db.Uuid
-  projectId           String    @map("project_id") @db.Uuid
-  title               String
-  type                BriefType
-  context             Json
-  instructions        String
+  id                       String    @id @default(uuid()) @db.Uuid
+  organizationId           String    @map("organization_id") @db.Uuid
+  projectId                String    @map("project_id") @db.Uuid
+  title                    String
+  type                     BriefType
+  context                  Json
+  instructions             String
   // Set by BriefsService.suggestPrice() -- an AI-generated starting point
   // for staff, never applied to Project.totalPriceIdr automatically. Staff
   // reviews/edits the number before it becomes a real invoice; see
   // ProjectsService's invoice-sending flow, which is what actually sets
   // the project's price.
-  aiSuggestedPriceIdr Int?      @map("ai_suggested_price_idr")
-  aiPriceReasoning    String?   @map("ai_price_reasoning")
-  createdById         String    @map("created_by_id") @db.Uuid
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
+  aiSuggestedPriceIdr      Int?      @map("ai_suggested_price_idr")
+  aiPriceReasoning         String?   @map("ai_price_reasoning")
+  // Staff can send a brief back to the client for more info instead of
+  // guessing at a price for something too vague to estimate --
+  // needsClarification=true blocks nothing structurally (a brief in this
+  // state still has tasks/whatever else attached to it already), it's
+  // purely a signal surfaced to the client with staff's question attached.
+  // clarificationRespondedAt is null until the client edits the brief's
+  // context, which clears needsClarification -- clarificationNote itself
+  // is kept (not cleared) as a historical record of what was asked.
+  needsClarification       Boolean   @default(false) @map("needs_clarification")
+  clarificationNote        String?   @map("clarification_note")
+  clarificationRespondedAt DateTime? @map("clarification_responded_at")
+  createdById              String    @map("created_by_id") @db.Uuid
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
 
   project  Project   @relation(fields: [projectId], references: [id])
   tasks    Task[]
