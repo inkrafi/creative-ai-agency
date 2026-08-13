@@ -37,7 +37,7 @@ function buildHistory(projects: Project[]): HistoryItem[] {
         label: `${PAYMENT_TYPE_LABEL[pay.type]} · ${pay.method}`,
         statusLabel: PAYMENT_VERIFICATION_LABEL[pay.verificationStatus],
         statusTone: PAYMENT_VERIFICATION_TONE[pay.verificationStatus],
-        href: `/projects/${p.id}#riwayat-pembayaran`,
+        href: `/riwayat/pembayaran/${p.id}/${pay.id}`,
       });
     }
     for (const inv of p.invoices) {
@@ -51,7 +51,7 @@ function buildHistory(projects: Project[]): HistoryItem[] {
         label: inv.minDpPercent !== null ? `Invoice · DP minimal ${inv.minDpPercent}%` : "Invoice",
         statusLabel: inv.emailSentAt ? "Email terkirim" : "Email belum terkirim",
         statusTone: inv.emailSentAt ? "success" : "neutral",
-        href: `/projects/${p.id}#riwayat-invoice`,
+        href: `/riwayat/invoice/${p.id}/${inv.id}`,
       });
     }
   }

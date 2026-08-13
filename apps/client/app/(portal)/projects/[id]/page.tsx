@@ -3,13 +3,9 @@
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
-import { formatDate, formatIdr } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import {
-  PAYMENT_STATUS_LABEL,
-  PAYMENT_STATUS_TONE,
-  PAYMENT_TYPE_LABEL,
-  PAYMENT_VERIFICATION_LABEL,
-  PAYMENT_VERIFICATION_TONE,
+  briefStatus,
   revisionClassificationLabel,
   revisionClassificationTone,
   TASK_STATUS_LABEL,
@@ -18,16 +14,10 @@ import {
 import { Badge, Button, Card, Label, SectionTitle, Textarea } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SuccessDialog } from "@/components/success-dialog";
-import {
-  AlertCircleIcon,
-  ClockIcon,
-  DocumentIcon,
-  ExternalLinkIcon,
-  FolderIcon,
-  PlusIcon,
-  WalletIcon,
-} from "@/components/icons";
-import type { Brief, Invoice, Project, RevisionRequestRecord, Task } from "@/lib/types";
+import { AlertCircleIcon, ChevronRightIcon, DocumentIcon, ExternalLinkIcon, FolderIcon, PlusIcon } from "@/components/icons";
+import type { Brief, BriefType, Project, RevisionRequestRecord, Task } from "@/lib/types";
+
+const BRIEF_TYPE_LABEL: Record<BriefType, string> = { WEBSITE: "Website", DESIGN: "Desain" };
 
 function RevisionHistory({ requests }: { requests: RevisionRequestRecord[] }) {
   if (requests.length === 0) return null;
@@ -176,7 +166,6 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [briefs, setBriefs] = useState<Brief[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [notFound, setNotFound] = useState(false);
 
   function load() {
@@ -187,7 +176,6 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
       });
     void api<Task[]>(`/tasks?projectId=${id}`).then(setTasks);
     void api<Brief[]>(`/briefs?projectId=${id}`).then(setBriefs);
-    void api<Invoice[]>(`/projects/${id}/invoices`).then(setInvoices);
   }
 
   useEffect(load, [id]);
@@ -195,14 +183,11 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
   if (notFound) return <p className="text-sm text-ink-muted">Proyek tidak ditemukan.</p>;
   if (!project) return <p className="text-sm text-ink-muted">Memuat…</p>;
 
-  const remaining = project.totalPriceIdr !== null ? Math.max(project.totalPriceIdr - project.totalPaidIdr, 0) : null;
   const needsReview = tasks.filter((t) => t.status === "IN_REVIEW");
   const otherTasks = tasks.filter((t) => t.status !== "IN_REVIEW");
 
   const sections = [
-    { id: "pembayaran", label: "Pembayaran" },
-    ...(project.payments.length > 0 ? [{ id: "riwayat-pembayaran", label: "Riwayat Pembayaran" }] : []),
-    ...(invoices.length > 0 ? [{ id: "riwayat-invoice", label: "Invoice" }] : []),
+    ...(briefs.length > 0 ? [{ id: "brief", label: "Brief" }] : []),
     ...(otherTasks.length > 0 ? [{ id: "tugas-lain", label: "Tugas" }] : []),
   ];
 
@@ -268,115 +253,37 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
         </div>
       )}
 
-      <Card id="pembayaran">
-        <SectionTitle
-          action={
-            project.totalPriceIdr !== null && (
-              <div className="flex gap-2">
-                {invoices.length > 0 && (
-                  <Link href={`/projects/${id}/invoice`}>
-                    <Button type="button" variant="ghost">
-                      Lihat Invoice
-                    </Button>
-                  </Link>
-                )}
-                <Link href={`/projects/${id}/payment`}>
-                  <Button type="button">Bayar Sekarang</Button>
-                </Link>
-              </div>
-            )
-          }
-        >
-          <span className="flex items-center gap-2">
-            <WalletIcon width={16} height={16} className="text-brand" />
-            Pembayaran
-          </span>
-        </SectionTitle>
-        {project.totalPriceIdr === null ? (
-          <p className="text-sm text-ink-muted">Harga proyek belum ditentukan. Menunggu invoice dari Kravio.</p>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-              <div>
-                <div className="text-xs text-ink-muted">Total harga</div>
-                <div className="font-semibold tabular-nums text-ink">{formatIdr(project.totalPriceIdr)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-ink-muted">Sudah dibayar</div>
-                <div className="font-semibold tabular-nums text-ink">{formatIdr(project.totalPaidIdr)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-ink-muted">Sisa</div>
-                <div className="font-semibold tabular-nums text-ink">{remaining !== null ? formatIdr(remaining) : "—"}</div>
-              </div>
-            </div>
-            {project.minDpPercent !== null && (
-              <p className="mt-3 text-xs text-ink-muted">
-                DP minimal yang disarankan: {project.minDpPercent}% (
-                {formatIdr(Math.round((project.totalPriceIdr * project.minDpPercent) / 100))}). Ini hanya
-                pemberitahuan, bukan batas yang mengunci jumlah pembayaran Anda.
-              </p>
-            )}
-            <div className="mt-2">
-              <Badge tone={PAYMENT_STATUS_TONE[project.paymentStatus]}>{PAYMENT_STATUS_LABEL[project.paymentStatus]}</Badge>
-            </div>
-          </>
-        )}
-      </Card>
-
-      {project.payments.length > 0 && (
-        <Card id="riwayat-pembayaran">
-          <SectionTitle>
-            <span className="flex items-center gap-2">
-              <ClockIcon width={16} height={16} className="text-brand" />
-              Riwayat pembayaran
-            </span>
-          </SectionTitle>
-          <div className="flex flex-col divide-y divide-border">
-            {project.payments.map((pay) => (
-              <div key={pay.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-ink">
-                    {PAYMENT_TYPE_LABEL[pay.type]} · {pay.method}
-                  </div>
-                  <div className="text-xs text-ink-muted">{formatDate(pay.createdAt)}</div>
-                  {pay.verificationStatus === "REJECTED" && pay.verificationNote && (
-                    <div className="mt-0.5 text-xs text-danger">Alasan: {pay.verificationNote}</div>
-                  )}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <span className="text-sm font-semibold tabular-nums text-ink">{formatIdr(pay.amountIdr)}</span>
-                  <Badge tone={PAYMENT_VERIFICATION_TONE[pay.verificationStatus]}>
-                    {PAYMENT_VERIFICATION_LABEL[pay.verificationStatus]}
-                  </Badge>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {invoices.length > 0 && (
-        <Card id="riwayat-invoice">
+      {briefs.length > 0 && (
+        <Card id="brief">
           <SectionTitle>
             <span className="flex items-center gap-2">
               <DocumentIcon width={16} height={16} className="text-brand" />
-              Riwayat invoice
+              Brief
             </span>
           </SectionTitle>
           <div className="flex flex-col divide-y divide-border">
-            {invoices.map((inv) => (
-              <div key={inv.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-ink">{formatIdr(inv.amountIdr)}</div>
-                  <div className="text-xs text-ink-muted">
-                    {formatDate(inv.createdAt)}
-                    {inv.minDpPercent !== null ? ` — DP minimal ${inv.minDpPercent}%` : ""}
+            {briefs.map((b) => {
+              const status = briefStatus(b.needsClarification);
+              return (
+                <Link
+                  key={b.id}
+                  href={`/projects/${id}/briefs/${b.id}`}
+                  className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0 hover:bg-surface-2"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <div className="truncate text-sm font-medium text-ink">{b.title}</div>
+                      <Badge>{BRIEF_TYPE_LABEL[b.type]}</Badge>
+                    </div>
+                    <div className="mt-0.5 text-xs text-ink-muted">{formatDate(b.createdAt)}</div>
                   </div>
-                  {inv.note && <div className="mt-0.5 text-xs text-ink-muted">{inv.note}</div>}
-                </div>
-              </div>
-            ))}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Badge tone={status.tone}>{status.label}</Badge>
+                    <ChevronRightIcon width={16} height={16} className="text-ink-muted" />
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         </Card>
       )}

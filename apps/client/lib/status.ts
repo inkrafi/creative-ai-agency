@@ -47,6 +47,11 @@ export const PAYMENT_VERIFICATION_TONE: Record<PaymentVerificationStatus, "neutr
   REJECTED: "danger",
 };
 
+export function briefStatus(needsClarification: boolean): { label: string; tone: "neutral" | "warning" } {
+  if (needsClarification) return { label: "Butuh info tambahan dari Anda", tone: "warning" };
+  return { label: "Terkirim -- menunggu tim Kravio", tone: "neutral" };
+}
+
 /** billable: null = staff hasn't reviewed yet, true = counted against your revision quota, false = free (Kravio's mistake). */
 export function revisionClassificationLabel(billable: boolean | null): string {
   if (billable === null) return "Menunggu peninjauan tim Kravio";

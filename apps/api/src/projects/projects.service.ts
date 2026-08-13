@@ -125,7 +125,13 @@ export class ProjectsService {
   async findOne(id: string) {
     const project = await this.prisma.client.project.findUnique({
       where: { id },
-      include: { payments: { orderBy: { createdAt: "desc" } } },
+      include: {
+        payments: { orderBy: { createdAt: "desc" } },
+        // Needed so the client portal's Riwayat detail pages can fetch one
+        // project and pick out a specific invoice by id from here, without
+        // a dedicated GET /invoices/:id endpoint.
+        invoices: { orderBy: { createdAt: "desc" } },
+      },
     });
     if (!project) throw new NotFoundException("Project not found");
 

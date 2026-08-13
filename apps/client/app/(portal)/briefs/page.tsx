@@ -4,16 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { briefStatus } from "@/lib/status";
 import { Badge, Card } from "@/components/ui";
 import { ChevronRightIcon } from "@/components/icons";
 import type { Brief, BriefType } from "@/lib/types";
 
 const TYPE_LABEL: Record<BriefType, string> = { WEBSITE: "Website", DESIGN: "Desain" };
-
-function briefStatus(b: Brief): { label: string; tone: "neutral" | "warning" } {
-  if (b.needsClarification) return { label: "Butuh info tambahan dari Anda", tone: "warning" };
-  return { label: "Terkirim -- menunggu tim Kravio", tone: "neutral" };
-}
 
 export default function BriefsListPage() {
   const [briefs, setBriefs] = useState<Brief[] | null>(null);
@@ -45,7 +41,7 @@ export default function BriefsListPage() {
         <Card>
           <div className="flex flex-col divide-y divide-border">
             {briefs.map((b) => {
-              const status = briefStatus(b);
+              const status = briefStatus(b.needsClarification);
               return (
                 <Link
                   key={b.id}
