@@ -55,8 +55,10 @@ export default function InvoicePage({ params }: PageProps<"/projects/[id]/invoic
         </Button>
       </div>
 
-      <Card className="print:border-none print:shadow-none">
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-5">
+      <Card className="relative overflow-hidden print:border-none print:shadow-none">
+        <div aria-hidden className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-brand via-brand-dark to-accent" />
+
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-5 pt-2">
           <div>
             <div className="flex items-center gap-2.5">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand text-sm font-bold text-brand-ink">
@@ -83,7 +85,15 @@ export default function InvoicePage({ params }: PageProps<"/projects/[id]/invoic
           </div>
         </div>
 
-        <div className="mt-6 rounded-xl border border-border bg-surface-2 p-5">
+        <div className="relative mt-6 rounded-xl border border-border bg-surface-2 p-5">
+          {project.paymentStatus === "PAID" && (
+            <div
+              aria-hidden
+              className="absolute top-3 right-4 rotate-12 rounded-lg border-2 border-success px-3 py-1 text-sm font-bold tracking-wide text-success/80 print:opacity-70"
+            >
+              LUNAS
+            </div>
+          )}
           <div className="text-xs text-ink-muted">Jumlah tagihan</div>
           <div className="text-3xl font-semibold tabular-nums text-ink">{formatIdr(latest.amountIdr)}</div>
           {latest.minDpPercent !== null && (

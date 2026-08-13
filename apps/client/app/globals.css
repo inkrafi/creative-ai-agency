@@ -34,6 +34,16 @@
   --accent: #c8e645;
   --accent-ink: #1a2e05;
 
+  /* Rounds out Kravio's official 4-color palette (blue/lime/cream/navy) --
+     apps/web stays blue-on-white per its own brief; this portal is for
+     non-technical small-business owners, so the warm cream + deep navy get
+     used here for hero/panel ornamentation (auth screens, Home's welcome
+     strip) where a friendlier, less corporate tone earns its keep. */
+  --cream: #efe8de;
+  --cream-ink: #4a4335;
+  --navy: #082d50;
+  --navy-light: #123a63;
+
   --success: #15803d;
   --success-bg: #e9f7ef;
   --warning: #b45309;
@@ -58,6 +68,11 @@
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
 
+  --color-cream: var(--cream);
+  --color-cream-ink: var(--cream-ink);
+  --color-navy: var(--navy);
+  --color-navy-light: var(--navy-light);
+
   --color-success: var(--success);
   --color-success-bg: var(--success-bg);
   --color-warning: var(--warning);
@@ -76,4 +91,26 @@ body {
      controls (select, checkbox) still follow the OS's dark preference and
      end up light text on light background. */
   color-scheme: light;
+}
+
+/* Modal enter animation (components/modal.tsx) -- gated behind
+   motion-safe: at the call site, so prefers-reduced-motion skips these. */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }

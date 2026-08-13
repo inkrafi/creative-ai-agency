@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { Button, Card, Input, Label, SectionTitle, Textarea } from "@/components/ui";
+import { SuccessDialog } from "@/components/success-dialog";
 import type { Brief, BriefType } from "@/lib/types";
 
 const TYPE_LABEL: Record<BriefType, string> = { WEBSITE: "Website", DESIGN: "Desain" };
@@ -32,6 +33,7 @@ export default function NewBriefPage({ params }: PageProps<"/projects/[id]/brief
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sentOpen, setSentOpen] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,11 +59,11 @@ export default function NewBriefPage({ params }: PageProps<"/projects/[id]/brief
               textToInclude: textToInclude || undefined,
             };
 
-      const brief = await api<Brief>("/briefs", {
+      await api<Brief>("/briefs", {
         method: "POST",
         body: JSON.stringify({ projectId: id, title, type, context }),
       });
-      router.push(`/projects/${brief.projectId}`);
+      setSentOpen(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal mengirim brief.");
     } finally {
@@ -182,6 +184,14 @@ export default function NewBriefPage({ params }: PageProps<"/projects/[id]/brief
           </Button>
         </form>
       </Card>
+
+      <SuccessDialog
+        open={sentOpen}
+        title="Brief berhasil dikirim!"
+        message="Tim Kravio akan meninjau brief Anda dan memberikan estimasi harga secepatnya."
+        actionLabel="Kembali ke Proyek"
+        onClose={() => router.push(`/projects/${id}`)}
+      />
     </div>
   );
 }

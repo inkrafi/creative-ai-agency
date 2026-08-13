@@ -16,7 +16,17 @@ import {
   TASK_STATUS_TONE,
 } from "@/lib/status";
 import { Badge, Button, Card, Label, SectionTitle, Textarea } from "@/components/ui";
-import { ExternalLinkIcon, PlusIcon } from "@/components/icons";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { SuccessDialog } from "@/components/success-dialog";
+import {
+  AlertCircleIcon,
+  ClockIcon,
+  DocumentIcon,
+  ExternalLinkIcon,
+  FolderIcon,
+  PlusIcon,
+  WalletIcon,
+} from "@/components/icons";
 import type { Brief, Invoice, Project, RevisionRequestRecord, Task } from "@/lib/types";
 
 function RevisionHistory({ requests }: { requests: RevisionRequestRecord[] }) {
@@ -41,6 +51,8 @@ function TaskReviewCard({ task, onDone }: { task: Task; onDone: () => void }) {
   const [showRevisionForm, setShowRevisionForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [successKind, setSuccessKind] = useState<"approve" | "revision" | null>(null);
   const latestDeliverable = task.deliverables[0];
 
   async function approve() {
@@ -48,9 +60,11 @@ function TaskReviewCard({ task, onDone }: { task: Task; onDone: () => void }) {
     setError(null);
     try {
       await api(`/tasks/${task.id}/approve`, { method: "POST" });
-      onDone();
+      setConfirmOpen(false);
+      setSuccessKind("approve");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal menyetujui.");
+      setConfirmOpen(false);
     } finally {
       setSubmitting(false);
     }
@@ -62,12 +76,23 @@ function TaskReviewCard({ task, onDone }: { task: Task; onDone: () => void }) {
     setError(null);
     try {
       await api(`/tasks/${task.id}/request-revision`, { method: "POST", body: JSON.stringify({ note }) });
-      onDone();
+      setShowRevisionForm(false);
+      setNote("");
+      setSuccessKind("revision");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal mengirim revisi.");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // Reload deferred until the success modal is dismissed -- otherwise the
+  // card (and the modal sitting on top of it) would vanish out from under
+  // the client the instant the request finished, since a successful
+  // approve/request-revision always moves this task out of needsReview.
+  function closeSuccess() {
+    setSuccessKind(null);
+    onDone();
   }
 
   return (
@@ -100,7 +125,7 @@ function TaskReviewCard({ task, onDone }: { task: Task; onDone: () => void }) {
 
       {!showRevisionForm ? (
         <div className="mt-4 flex gap-2">
-          <Button type="button" onClick={approve} disabled={submitting}>
+          <Button type="button" onClick={() => setConfirmOpen(true)} disabled={submitting}>
             Setujui
           </Button>
           <Button type="button" variant="ghost" onClick={() => setShowRevisionForm(true)} disabled={submitting}>
@@ -121,6 +146,26 @@ function TaskReviewCard({ task, onDone }: { task: Task; onDone: () => void }) {
           </div>
         </form>
       )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Setujui hasil kerja ini?"
+        message="Setelah disetujui, tugas ini akan ditandai selesai dan Anda tidak bisa lagi meminta revisi untuk tugas ini."
+        confirmLabel="Ya, Setujui"
+        submitting={submitting}
+        onConfirm={approve}
+        onCancel={() => setConfirmOpen(false)}
+      />
+      <SuccessDialog
+        open={successKind !== null}
+        title={successKind === "approve" ? "Berhasil disetujui!" : "Permintaan revisi terkirim!"}
+        message={
+          successKind === "approve"
+            ? "Terima kasih! Tugas ini sekarang ditandai selesai."
+            : "Tim Kravio akan meninjau permintaan Anda dan mulai mengerjakannya."
+        }
+        onClose={closeSuccess}
+      />
     </Card>
   );
 }
@@ -154,6 +199,13 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
   const needsReview = tasks.filter((t) => t.status === "IN_REVIEW");
   const otherTasks = tasks.filter((t) => t.status !== "IN_REVIEW");
 
+  const sections = [
+    { id: "pembayaran", label: "Pembayaran" },
+    ...(project.payments.length > 0 ? [{ id: "riwayat-pembayaran", label: "Riwayat Pembayaran" }] : []),
+    ...(invoices.length > 0 ? [{ id: "riwayat-invoice", label: "Invoice" }] : []),
+    ...(otherTasks.length > 0 ? [{ id: "tugas-lain", label: "Tugas" }] : []),
+  ];
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -175,6 +227,19 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
             Target selesai: <span className="font-medium text-ink">{formatDate(project.targetCompletionDate)}</span>
           </p>
         )}
+        {sections.length > 1 && (
+          <nav className="mt-4 flex flex-wrap gap-2">
+            {sections.map((s) => (
+              <a
+                key={s.id}
+                href={`#${s.id}`}
+                className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted transition hover:border-brand hover:text-brand"
+              >
+                {s.label}
+              </a>
+            ))}
+          </nav>
+        )}
       </div>
 
       {briefs
@@ -191,14 +256,19 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
 
       {needsReview.length > 0 && (
         <div className="flex flex-col gap-4">
-          <SectionTitle>Menunggu keputusan Anda</SectionTitle>
+          <SectionTitle>
+            <span className="flex items-center gap-2">
+              <AlertCircleIcon width={16} height={16} className="text-warning" />
+              Menunggu keputusan Anda
+            </span>
+          </SectionTitle>
           {needsReview.map((t) => (
             <TaskReviewCard key={t.id} task={t} onDone={load} />
           ))}
         </div>
       )}
 
-      <Card>
+      <Card id="pembayaran">
         <SectionTitle
           action={
             project.totalPriceIdr !== null && (
@@ -217,7 +287,10 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
             )
           }
         >
-          Pembayaran
+          <span className="flex items-center gap-2">
+            <WalletIcon width={16} height={16} className="text-brand" />
+            Pembayaran
+          </span>
         </SectionTitle>
         {project.totalPriceIdr === null ? (
           <p className="text-sm text-ink-muted">Harga proyek belum ditentukan. Menunggu invoice dari Kravio.</p>
@@ -252,8 +325,13 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
       </Card>
 
       {project.payments.length > 0 && (
-        <Card>
-          <SectionTitle>Riwayat pembayaran</SectionTitle>
+        <Card id="riwayat-pembayaran">
+          <SectionTitle>
+            <span className="flex items-center gap-2">
+              <ClockIcon width={16} height={16} className="text-brand" />
+              Riwayat pembayaran
+            </span>
+          </SectionTitle>
           <div className="flex flex-col divide-y divide-border">
             {project.payments.map((pay) => (
               <div key={pay.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
@@ -279,8 +357,13 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
       )}
 
       {invoices.length > 0 && (
-        <Card>
-          <SectionTitle>Riwayat invoice</SectionTitle>
+        <Card id="riwayat-invoice">
+          <SectionTitle>
+            <span className="flex items-center gap-2">
+              <DocumentIcon width={16} height={16} className="text-brand" />
+              Riwayat invoice
+            </span>
+          </SectionTitle>
           <div className="flex flex-col divide-y divide-border">
             {invoices.map((inv) => (
               <div key={inv.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
@@ -299,8 +382,13 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
       )}
 
       {otherTasks.length > 0 && (
-        <Card>
-          <SectionTitle>Tugas lain</SectionTitle>
+        <Card id="tugas-lain">
+          <SectionTitle>
+            <span className="flex items-center gap-2">
+              <FolderIcon width={16} height={16} className="text-brand" />
+              Tugas lain
+            </span>
+          </SectionTitle>
           <div className="flex flex-col divide-y divide-border">
             {otherTasks.map((t) => (
               <div key={t.id} className="py-3 first:pt-0 last:pb-0">

@@ -2,8 +2,10 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { Badge, Button, Card, Input, Label, SectionTitle, Textarea } from "@/components/ui";
+import { SuccessDialog } from "@/components/success-dialog";
 import type { Brief, BriefType } from "@/lib/types";
 
 const TYPE_LABEL: Record<BriefType, string> = { WEBSITE: "Website", DESIGN: "Desain" };
@@ -15,6 +17,7 @@ function prettifyKey(key: string): string {
 
 export default function ClientBriefDetailPage({ params }: PageProps<"/projects/[id]/briefs/[briefId]">) {
   const { id, briefId } = use(params);
+  const router = useRouter();
 
   const [brief, setBrief] = useState<Brief | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -35,7 +38,7 @@ export default function ClientBriefDetailPage({ params }: PageProps<"/projects/[
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState(false);
+  const [sentOpen, setSentOpen] = useState(false);
 
   function load() {
     api<Brief>(`/briefs/${briefId}`)
@@ -70,7 +73,6 @@ export default function ClientBriefDetailPage({ params }: PageProps<"/projects/[
     if (!brief) return;
     setSubmitting(true);
     setError(null);
-    setSent(false);
     try {
       const context =
         brief.type === "WEBSITE"
@@ -91,7 +93,7 @@ export default function ClientBriefDetailPage({ params }: PageProps<"/projects/[
               textToInclude: textToInclude || undefined,
             };
       await api(`/briefs/${briefId}`, { method: "PATCH", body: JSON.stringify({ context }) });
-      setSent(true);
+      setSentOpen(true);
       load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal mengirim jawaban.");
@@ -181,7 +183,6 @@ export default function ClientBriefDetailPage({ params }: PageProps<"/projects/[
                 </>
               )}
               {error && <p className="text-sm text-danger">{error}</p>}
-              {sent && <p className="text-sm text-success">Jawaban terkirim, tim Kravio akan meninjau ulang.</p>}
               <Button type="submit" disabled={submitting} className="self-start">
                 {submitting ? "Mengirim…" : "Kirim Jawaban"}
               </Button>
@@ -206,6 +207,14 @@ export default function ClientBriefDetailPage({ params }: PageProps<"/projects/[
           )}
         </Card>
       )}
+
+      <SuccessDialog
+        open={sentOpen}
+        title="Jawaban terkirim!"
+        message="Tim Kravio akan meninjau ulang brief Anda."
+        actionLabel="Kembali ke Proyek"
+        onClose={() => router.push(`/projects/${id}`)}
+      />
     </div>
   );
 }

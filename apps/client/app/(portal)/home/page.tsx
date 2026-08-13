@@ -7,6 +7,7 @@ import { formatIdr, formatRelative } from "@/lib/format";
 import { PAYMENT_STATUS_LABEL, PAYMENT_STATUS_TONE, PROJECT_STATUS_LABEL } from "@/lib/status";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Input, Label, SectionTitle, Textarea } from "@/components/ui";
+import { SuccessDialog } from "@/components/success-dialog";
 import { ChevronRightIcon, PlusIcon } from "@/components/icons";
 import type { Brief, Invoice, Project, Task } from "@/lib/types";
 
@@ -126,6 +127,8 @@ export default function HomePage() {
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
 
   function load() {
     void api<Project[]>("/projects").then((list) => {
@@ -144,13 +147,15 @@ export default function HomePage() {
     setSubmitting(true);
     setError(null);
     try {
-      await api<Project>("/projects", {
+      const created = await api<Project>("/projects", {
         method: "POST",
         body: JSON.stringify({ name, description: description || undefined }),
       });
       setName("");
       setDescription("");
       setShowForm(false);
+      setCreatedProjectId(created.id);
+      setSuccessOpen(true);
       load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal membuat proyek.");
@@ -161,15 +166,32 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-xs font-medium text-ink-muted">Halo, {user?.email}</div>
-          <h1 className="text-2xl font-bold text-ink">Proyek Anda</h1>
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-navy-light via-navy to-[#061f38] px-6 py-7 sm:px-8">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-16 -right-10 h-48 w-48 rounded-full bg-accent/20 blur-3xl"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-20 -left-16 h-56 w-56 rounded-full bg-brand/30 blur-3xl"
+        />
+        <div className="relative flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="text-xs font-medium text-white/60">Halo, {user?.email}</div>
+            <h1 className="mt-1 font-display text-2xl font-semibold text-balance text-white sm:text-3xl">
+              Proyek Anda
+            </h1>
+            <p className="mt-1.5 text-sm text-white/70">
+              {hasProjects
+                ? `${projects?.length ?? 0} proyek terhubung dengan akun Anda.`
+                : "Belum ada proyek -- mulai yang pertama sekarang."}
+            </p>
+          </div>
+          <Button type="button" variant="accent" onClick={() => setShowForm((v) => !v)}>
+            <PlusIcon width={16} height={16} />
+            Proyek Baru
+          </Button>
         </div>
-        <Button type="button" onClick={() => setShowForm((v) => !v)}>
-          <PlusIcon width={16} height={16} />
-          Proyek Baru
-        </Button>
       </div>
 
       {showForm && (
@@ -262,6 +284,15 @@ export default function HomePage() {
           )}
         </Card>
       )}
+
+      <SuccessDialog
+        open={successOpen}
+        title="Proyek berhasil dibuat!"
+        message="Sekarang Anda bisa mengajukan brief untuk proyek ini kapan saja."
+        actionLabel="Tutup"
+        onClose={() => setSuccessOpen(false)}
+        secondaryAction={createdProjectId ? { label: "Buka Proyek", href: `/projects/${createdProjectId}` } : undefined}
+      />
     </div>
   );
 }

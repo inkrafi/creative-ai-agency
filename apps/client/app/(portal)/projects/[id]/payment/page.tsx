@@ -2,10 +2,12 @@
 
 import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { formatIdr } from "@/lib/format";
 import { PAYMENT_STATUS_LABEL, PAYMENT_STATUS_TONE, PAYMENT_TYPE_LABEL } from "@/lib/status";
 import { Badge, Button, Card, Input, Label, Select, SectionTitle, Textarea } from "@/components/ui";
+import { SuccessDialog } from "@/components/success-dialog";
 import type { PaymentType, Project } from "@/lib/types";
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -19,6 +21,7 @@ function readAsDataUrl(file: File): Promise<string> {
 
 export default function PaymentPage({ params }: PageProps<"/projects/[id]/payment">) {
   const { id } = use(params);
+  const router = useRouter();
 
   const [project, setProject] = useState<Project | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -30,7 +33,7 @@ export default function PaymentPage({ params }: PageProps<"/projects/[id]/paymen
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
-  const [claimed, setClaimed] = useState(false);
+  const [claimedOpen, setClaimedOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function load() {
@@ -48,7 +51,6 @@ export default function PaymentPage({ params }: PageProps<"/projects/[id]/paymen
     if (!proofFile) return;
     setClaiming(true);
     setClaimError(null);
-    setClaimed(false);
     try {
       const proofImageBase64 = await readAsDataUrl(proofFile);
       await api(`/projects/${id}/payments/claim`, {
@@ -66,7 +68,7 @@ export default function PaymentPage({ params }: PageProps<"/projects/[id]/paymen
       setPaymentNote("");
       setProofFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      setClaimed(true);
+      setClaimedOpen(true);
       load();
     } catch (err) {
       setClaimError(err instanceof ApiError ? err.message : "Gagal mengirim bukti pembayaran.");
@@ -174,14 +176,6 @@ export default function PaymentPage({ params }: PageProps<"/projects/[id]/paymen
                 />
               </div>
               {claimError && <p className="text-sm text-danger">{claimError}</p>}
-              {claimed && (
-                <p className="text-sm text-success">
-                  Bukti pembayaran terkirim, menunggu verifikasi tim Kravio.{" "}
-                  <Link href={`/projects/${id}`} className="font-medium text-brand hover:underline">
-                    Kembali ke proyek
-                  </Link>
-                </p>
-              )}
               <Button type="submit" disabled={claiming || !proofFile} className="self-start">
                 {claiming ? "Mengirim…" : "Kirim Bukti Pembayaran"}
               </Button>
@@ -189,6 +183,14 @@ export default function PaymentPage({ params }: PageProps<"/projects/[id]/paymen
           </Card>
         </>
       )}
+
+      <SuccessDialog
+        open={claimedOpen}
+        title="Bukti pembayaran terkirim!"
+        message="Tim Kravio akan memverifikasi pembayaran Anda secepatnya."
+        actionLabel="Kembali ke Proyek"
+        onClose={() => router.push(`/projects/${id}`)}
+      />
     </div>
   );
 }
