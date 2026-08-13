@@ -71,7 +71,7 @@ export default function RiwayatPage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="font-display text-2xl font-semibold text-ink">Riwayat</h1>
-        <p className="mt-1 text-sm text-ink-muted">Riwayat pembayaran dan invoice dari seluruh proyek Anda.</p>
+        <p className="mt-1 text-sm text-ink-muted">Riwayat pembayaran dan invoice dari seluruh brief Anda.</p>
       </div>
 
       {history === null ? (

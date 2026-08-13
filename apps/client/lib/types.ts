@@ -6,7 +6,7 @@ export type Role = "AGENCY_ADMIN" | "AGENCY_EDITOR" | "CLIENT_APPROVER" | "CLIEN
 
 export type ProjectStatus = "ACTIVE" | "ARCHIVED";
 export type TaskStatus = "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE";
-export type BriefType = "WEBSITE" | "DESIGN";
+export type BriefType = "LANDING_PAGE" | "DESIGN" | "VIDEO";
 export type PaymentType = "DP" | "PELUNASAN" | "OTHER";
 export type PaymentStatus = "NO_PRICE" | "UNPAID" | "PARTIAL" | "PAID";
 export type PaymentVerificationStatus = "PENDING" | "VERIFIED" | "REJECTED";

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui";
 import { DataTable, type DataTableColumn, type DataTableFilter } from "@/components/data-table";
 import type { Brief, Invoice, Project } from "@/lib/types";
 
-const TYPE_LABEL: Record<Brief["type"], string> = { WEBSITE: "Website", DESIGN: "Desain" };
+const TYPE_LABEL: Record<Brief["type"], string> = { LANDING_PAGE: "Landing Page", DESIGN: "Desain", VIDEO: "Video" };
 
 export default function BriefsPage() {
   const [briefs, setBriefs] = useState<Brief[] | null>(null);

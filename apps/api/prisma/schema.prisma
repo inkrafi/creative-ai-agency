@@ -47,8 +47,9 @@ enum LedgerEntryStatus {
 }
 
 enum BriefType {
-  WEBSITE
+  LANDING_PAGE
   DESIGN
+  VIDEO
 }
 
 enum PaymentType {

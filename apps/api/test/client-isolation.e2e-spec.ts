@@ -87,7 +87,7 @@ describe("Client isolation + self-signup (e2e)", () => {
       .send({
         projectId,
         title: "Test brief",
-        type: "WEBSITE",
+        type: "LANDING_PAGE",
         context: {
           businessType: "A",
           targetAudience: "B",
@@ -169,7 +169,7 @@ describe("Client isolation + self-signup (e2e)", () => {
         .send({
           projectId: projectA.id,
           title: "Sneaky brief",
-          type: "WEBSITE",
+          type: "LANDING_PAGE",
           context: { businessType: "A", targetAudience: "B", painPoints: "C", goals: "D" },
         })
         .expect(404);

@@ -50,11 +50,13 @@ doc §4.1: *"Text can stream directly for UX, but is still logged as a job
 for cost accounting."*
 
 **The AI draft is a starting point for a human, never the deliverable.**
-For both brief types, the AI's output is written direction -- for `WEBSITE`
-briefs, a sitemap + draft copy for the agency's own developer to build from;
-for `DESIGN` briefs, mood/palette/layout direction (explicitly *not* an
-image) for the agency's own designer to execute. A human always does the
-actual creative/dev work from there -- see "Review & revision cycle" below
+For all three brief types, the AI's output is written direction -- for
+`LANDING_PAGE` briefs, a sitemap + draft copy for the agency's own developer
+to build from; for `DESIGN` briefs, mood/palette/layout direction
+(explicitly *not* an image) for the agency's own designer to execute; for
+`VIDEO` briefs, a scene-by-scene outline and tone/pacing direction
+(explicitly *not* a rendered video) for the agency's own editor to execute.
+A human always does the actual creative/dev work from there -- see "Review & revision cycle" below
 for what happens next. This is why a successful generation moves the task
 to `IN_PROGRESS`, not `IN_REVIEW`: the AI finishing is the start of the
 human's work, not the end of it.
@@ -403,9 +405,9 @@ curl -X POST localhost:3000/auth/login \
 
 curl localhost:3000/projects -H "Authorization: Bearer <accessToken>"
 
-# Create a WEBSITE brief, then stream a text draft
+# Create a LANDING_PAGE brief, then stream a text draft
 curl -X POST localhost:3000/briefs -H "Authorization: Bearer <accessToken>" -H "Content-Type: application/json" \
-  -d '{"projectId":"<projectId>","title":"Bakery site","type":"WEBSITE","context":{"businessType":"Local bakery","targetAudience":"Neighborhood families","painPoints":"No online presence","goals":"Simple site with menu and location"}}'
+  -d '{"projectId":"<projectId>","title":"Bakery site","type":"LANDING_PAGE","context":{"businessType":"Local bakery","targetAudience":"Neighborhood families","painPoints":"No online presence","goals":"Simple site with menu and location"}}'
 curl -N localhost:3000/briefs/<briefId>/generate -H "Authorization: Bearer <accessToken>"
 
 # Once a human has built/designed the real thing from that draft, submit it

@@ -9,7 +9,7 @@ export interface ActivityItem {
   projectName: string;
   message: string;
   tone: "neutral" | "success" | "warning" | "danger";
-  href?: string;
+  href: string;
 }
 
 export const ACTIVITY_DOT_TONE: Record<ActivityItem["tone"], string> = {
@@ -31,6 +31,12 @@ export async function buildActivity(projects: Project[], limit = 12): Promise<Ac
         api<Brief[]>(`/briefs?projectId=${p.id}`),
       ]);
 
+      // Every client-created project has exactly one brief that created it
+      // (see BriefsService.create()'s auto-project behavior) -- that brief's
+      // own workspace page is where all of this project's activity lives
+      // now that there's no standalone project page to link to.
+      const briefHref = briefs[0] ? `/briefs/${briefs[0].id}` : "/briefs";
+
       for (const b of briefs) {
         if (b.needsClarification) {
           items.push({
@@ -40,7 +46,7 @@ export async function buildActivity(projects: Project[], limit = 12): Promise<Ac
             projectName: p.name,
             message: `Tim Kravio butuh info tambahan soal "${b.title}"`,
             tone: "warning",
-            href: `/projects/${p.id}/briefs/${b.id}`,
+            href: `/briefs/${b.id}`,
           });
         }
       }
@@ -53,6 +59,7 @@ export async function buildActivity(projects: Project[], limit = 12): Promise<Ac
           projectName: p.name,
           message: `Invoice terkirim — ${formatIdr(inv.amountIdr)}`,
           tone: "neutral",
+          href: `/riwayat/invoice/${p.id}/${inv.id}`,
         });
       }
 
@@ -65,6 +72,7 @@ export async function buildActivity(projects: Project[], limit = 12): Promise<Ac
             projectName: p.name,
             message: `Pembayaran ${formatIdr(pay.amountIdr)} terverifikasi`,
             tone: "success",
+            href: `/riwayat/pembayaran/${p.id}/${pay.id}`,
           });
         } else if (pay.verificationStatus === "REJECTED" && pay.verifiedAt) {
           items.push({
@@ -74,6 +82,7 @@ export async function buildActivity(projects: Project[], limit = 12): Promise<Ac
             projectName: p.name,
             message: `Pembayaran ${formatIdr(pay.amountIdr)} ditolak${pay.verificationNote ? `: ${pay.verificationNote}` : ""}`,
             tone: "danger",
+            href: `/riwayat/pembayaran/${p.id}/${pay.id}`,
           });
         }
       }
@@ -87,6 +96,7 @@ export async function buildActivity(projects: Project[], limit = 12): Promise<Ac
             projectName: p.name,
             message: `"${t.title}" siap untuk Anda review`,
             tone: "warning",
+            href: briefHref,
           });
         }
         for (const r of t.revisionRequests) {
@@ -98,6 +108,7 @@ export async function buildActivity(projects: Project[], limit = 12): Promise<Ac
               projectName: p.name,
               message: `Revisi #${r.round} pada "${t.title}" ditandai gratis -- tidak memotong jatah revisi Anda`,
               tone: "success",
+              href: briefHref,
             });
           }
         }

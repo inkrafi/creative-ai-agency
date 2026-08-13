@@ -226,8 +226,9 @@
 
         <label>Tipe Brief</label>
         <select id="new-brief-type" onchange="renderBriefTypeFields()">
-          <option value="WEBSITE">Website</option>
+          <option value="LANDING_PAGE">Landing Page</option>
           <option value="DESIGN">Desain (poster, banner, dll)</option>
+          <option value="VIDEO">Video</option>
         </select>
 
         <div id="brief-type-fields"></div>
@@ -610,11 +611,11 @@ function renderBriefs() {
     .join("");
 }
 
-// Field sets mirror src/briefs/brief-context.ts (WebsiteBriefContext /
-// DesignBriefContext + their required fields) -- keep these in sync if
-// that file changes.
+// Field sets mirror src/briefs/brief-context.ts (LandingPageBriefContext /
+// DesignBriefContext / VideoBriefContext + their required fields) -- keep
+// these in sync if that file changes.
 const BRIEF_TYPE_FIELDS = {
-  WEBSITE: [
+  LANDING_PAGE: [
     { id: "businessType", label: "Bidang usaha", required: true, placeholder: "Contoh: Toko roti lokal" },
     { id: "targetAudience", label: "Target audiens", required: true, placeholder: "Contoh: Keluarga di sekitar toko" },
     {
@@ -624,7 +625,7 @@ const BRIEF_TYPE_FIELDS = {
       textarea: true,
       placeholder: "Contoh: Belum ada info online, pelanggan tidak tahu jam buka/menu",
     },
-    { id: "goals", label: "Tujuan website", required: true, placeholder: "Contoh: Web sederhana dengan menu dan lokasi" },
+    { id: "goals", label: "Tujuan landing page", required: true, placeholder: "Contoh: Halaman sederhana dengan menu dan lokasi" },
     { id: "pagesNeeded", label: "Halaman yang diinginkan (opsional)", required: false, placeholder: "Contoh: Home, Menu, Tentang, Kontak" },
     { id: "toneStyle", label: "Gaya/tone (opsional)", required: false, placeholder: "Contoh: Hangat dan ramah" },
   ],
@@ -641,6 +642,20 @@ const BRIEF_TYPE_FIELDS = {
     { id: "dimensions", label: "Ukuran/format (opsional)", required: false, placeholder: "Contoh: A3, atau 1080x1080 untuk IG" },
     { id: "styleMood", label: "Gaya/mood visual (opsional)", required: false, placeholder: "Contoh: Ceria, warna cerah" },
     { id: "textToInclude", label: "Teks wajib yang harus ada (opsional)", required: false, placeholder: "Contoh: Nama toko, tanggal promo" },
+  ],
+  VIDEO: [
+    { id: "videoType", label: "Jenis video", required: true, placeholder: "Contoh: Video promosi produk" },
+    { id: "purpose", label: "Tujuan", required: true, placeholder: "Contoh: Promosi menu baru di Instagram" },
+    { id: "duration", label: "Durasi", required: true, placeholder: "Contoh: 30 detik" },
+    {
+      id: "keyMessage",
+      label: "Pesan utama",
+      required: true,
+      textarea: true,
+      placeholder: "Contoh: Menu baru sudah tersedia, promo minggu ini saja",
+    },
+    { id: "styleMood", label: "Gaya/mood visual (opsional)", required: false, placeholder: "Contoh: Ceria, cepat, energik" },
+    { id: "referenceLinks", label: "Referensi (opsional)", required: false, placeholder: "Contoh: link video referensi" },
   ],
 };
 
@@ -661,6 +676,10 @@ function renderBriefTypeFields() {
   if (type === "DESIGN") {
     container.innerHTML +=
       '<p class="muted">Hasil AI untuk tipe Desain berupa arah kreatif tertulis (mood, palet warna, layout) — bahan awal untuk desainer kalian mengerjakan hasil akhirnya, bukan gambar jadi.</p>';
+  }
+  if (type === "VIDEO") {
+    container.innerHTML +=
+      '<p class="muted">Hasil AI untuk tipe Video berupa arah kreatif tertulis (outline adegan, tone, musik) — bahan awal untuk editor/videografer kalian, bukan video jadi.</p>';
   }
 }
 
@@ -757,7 +776,7 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-renderBriefTypeFields(); // populate the default (WEBSITE) fields before any project is selected
+renderBriefTypeFields(); // populate the default (LANDING_PAGE) fields before any project is selected
 
 // Resume session if a token is already stored (page refresh).
 if (state.token) {

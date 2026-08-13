@@ -126,7 +126,7 @@ describe("Client portal flow (e2e)", () => {
       .send({
         projectId,
         title: "Company site",
-        type: "WEBSITE",
+        type: "LANDING_PAGE",
         context: {
           businessType: "Local bakery",
           targetAudience: "Neighborhood families",
@@ -209,7 +209,7 @@ describe("Client portal flow (e2e)", () => {
         .send({
           projectId: project.id,
           title: "X",
-          type: "WEBSITE",
+          type: "LANDING_PAGE",
           context: {
             businessType: "A",
             targetAudience: "B",

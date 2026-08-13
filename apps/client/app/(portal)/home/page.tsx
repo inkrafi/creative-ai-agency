@@ -3,37 +3,38 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { formatIdr, formatRelative } from "@/lib/format";
-import { PAYMENT_STATUS_LABEL, PAYMENT_STATUS_TONE } from "@/lib/status";
+import { formatDate, formatRelative } from "@/lib/format";
+import { briefStatus } from "@/lib/status";
 import { useAuth } from "@/lib/auth";
 import { ACTIVITY_DOT_TONE, buildActivity, type ActivityItem } from "@/lib/activity";
 import { Badge, Button, Card, SectionTitle } from "@/components/ui";
-import { ChevronRightIcon, ClockIcon, FolderIcon, PlusIcon } from "@/components/icons";
-import type { Project } from "@/lib/types";
+import { ChevronRightIcon, ClockIcon, DocumentIcon, PlusIcon } from "@/components/icons";
+import type { Brief, BriefType, Project } from "@/lib/types";
 
-const RECENT_PROJECTS_LIMIT = 3;
+const RECENT_BRIEFS_LIMIT = 3;
+const TYPE_LABEL: Record<BriefType, string> = { LANDING_PAGE: "Landing Page", DESIGN: "Desain", VIDEO: "Video" };
 
 export default function HomePage() {
   const { profile, user } = useAuth();
-  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [briefs, setBriefs] = useState<Brief[] | null>(null);
   const [activity, setActivity] = useState<ActivityItem[] | null>(null);
 
   useEffect(() => {
+    void api<Brief[]>("/briefs").then(setBriefs);
     void api<Project[]>("/projects").then((list) => {
-      setProjects(list);
       if (list.length > 0) void buildActivity(list, 8).then(setActivity);
       else setActivity([]);
     });
   }, []);
 
-  const hasProjects = useMemo(() => (projects?.length ?? 0) > 0, [projects]);
-  const activeCount = useMemo(() => projects?.filter((p) => p.status === "ACTIVE").length ?? 0, [projects]);
+  const hasBriefs = useMemo(() => (briefs?.length ?? 0) > 0, [briefs]);
+  const needsResponseCount = useMemo(() => briefs?.filter((b) => b.needsClarification).length ?? 0, [briefs]);
   const needsAttentionCount = useMemo(
     () => activity?.filter((a) => a.tone === "warning" || a.tone === "danger").length ?? 0,
     [activity],
   );
   const displayName = profile?.name ?? user?.email ?? "";
-  const recentProjects = projects?.slice(0, RECENT_PROJECTS_LIMIT) ?? [];
+  const recentBriefs = briefs?.slice(0, RECENT_BRIEFS_LIMIT) ?? [];
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px] lg:items-start">
@@ -54,38 +55,40 @@ export default function HomePage() {
                 Halo, {displayName}
               </h1>
               <p className="mt-1.5 text-sm text-white/70">
-                {hasProjects
-                  ? "Berikut ringkasan terbaru dari proyek-proyek Anda bersama Kravio."
-                  : "Belum ada proyek -- mulai yang pertama sekarang."}
+                {hasBriefs
+                  ? "Berikut ringkasan terbaru dari brief-brief Anda bersama Kravio."
+                  : "Belum ada brief -- ajukan yang pertama sekarang."}
               </p>
             </div>
-            <Link href="/projects">
+            <Link href="/briefs/new">
               <Button type="button" variant="accent">
                 <PlusIcon width={16} height={16} />
-                Proyek Baru
+                Brief Baru
               </Button>
             </Link>
           </div>
         </div>
 
-        {projects === null ? (
+        {briefs === null ? (
           <p className="text-sm text-ink-muted">Memuat…</p>
-        ) : !hasProjects ? (
+        ) : !hasBriefs ? (
           <Card>
             <p className="text-sm text-ink-muted">
-              Belum ada proyek. <Link href="/projects" className="font-medium text-brand hover:underline">Buat proyek pertama Anda</Link> untuk mulai mengajukan brief.
+              Belum ada brief. <Link href="/briefs/new" className="font-medium text-brand hover:underline">Ajukan brief pertama Anda</Link> untuk mulai.
             </p>
           </Card>
         ) : (
           <>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
               <Card className="flex flex-col gap-1">
-                <div className="text-xs font-medium text-ink-muted">Proyek Aktif</div>
-                <div className="text-2xl font-semibold tabular-nums text-ink">{activeCount}</div>
+                <div className="text-xs font-medium text-ink-muted">Total Brief</div>
+                <div className="text-2xl font-semibold tabular-nums text-ink">{briefs.length}</div>
               </Card>
               <Card className="flex flex-col gap-1">
-                <div className="text-xs font-medium text-ink-muted">Total Proyek</div>
-                <div className="text-2xl font-semibold tabular-nums text-ink">{projects.length}</div>
+                <div className="text-xs font-medium text-ink-muted">Butuh Respons</div>
+                <div className={`text-2xl font-semibold tabular-nums ${needsResponseCount > 0 ? "text-warning" : "text-ink"}`}>
+                  {needsResponseCount}
+                </div>
               </Card>
               <Card className="col-span-2 flex flex-col gap-1 sm:col-span-1">
                 <div className="text-xs font-medium text-ink-muted">Perlu Perhatian</div>
@@ -98,44 +101,46 @@ export default function HomePage() {
             <Card>
               <SectionTitle
                 action={
-                  <Link href="/projects" className="text-xs font-medium text-brand hover:underline">
+                  <Link href="/briefs" className="text-xs font-medium text-brand hover:underline">
                     Lihat semua
                   </Link>
                 }
               >
                 <span className="flex items-center gap-2">
-                  <FolderIcon width={16} height={16} className="text-brand" />
-                  Proyek Terbaru
+                  <DocumentIcon width={16} height={16} className="text-brand" />
+                  Brief Terbaru
                 </span>
               </SectionTitle>
               <div className="flex flex-col divide-y divide-border">
-                {recentProjects.map((p) => (
-                  <Link
-                    key={p.id}
-                    href={`/projects/${p.id}`}
-                    className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0 hover:bg-surface-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-ink">{p.name}</div>
-                      {p.totalPriceIdr !== null && (
-                        <div className="mt-0.5 text-xs tabular-nums text-ink-muted">
-                          {formatIdr(p.totalPaidIdr)} / {formatIdr(p.totalPriceIdr)}
+                {recentBriefs.map((b) => {
+                  const status = briefStatus(b.needsClarification);
+                  return (
+                    <Link
+                      key={b.id}
+                      href={`/briefs/${b.id}`}
+                      className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0 hover:bg-surface-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <div className="truncate text-sm font-medium text-ink">{b.title}</div>
+                          <Badge>{TYPE_LABEL[b.type]}</Badge>
                         </div>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Badge tone={PAYMENT_STATUS_TONE[p.paymentStatus]}>{PAYMENT_STATUS_LABEL[p.paymentStatus]}</Badge>
-                      <ChevronRightIcon width={16} height={16} className="text-ink-muted" />
-                    </div>
-                  </Link>
-                ))}
+                        <div className="mt-0.5 text-xs text-ink-muted">{formatDate(b.createdAt)}</div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Badge tone={status.tone}>{status.label}</Badge>
+                        <ChevronRightIcon width={16} height={16} className="text-ink-muted" />
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             </Card>
           </>
         )}
       </div>
 
-      {hasProjects && (
+      {hasBriefs && (
         <Card className="lg:sticky lg:top-6">
           <SectionTitle>
             <span className="flex items-center gap-2">
@@ -152,7 +157,7 @@ export default function HomePage() {
               {activity.map((item) => (
                 <Link
                   key={item.id}
-                  href={item.href ?? `/projects/${item.projectId}`}
+                  href={item.href}
                   className="flex items-start gap-3 py-3 first:pt-0 last:pb-0 hover:bg-surface-2"
                 >
                   <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${ACTIVITY_DOT_TONE[item.tone]}`} />

@@ -111,7 +111,7 @@ describe("Briefs + generation (e2e)", () => {
       .send({
         projectId: project.body.id,
         title: "Company site",
-        type: "WEBSITE",
+        type: "LANDING_PAGE",
         context: {
           businessType: "Local bakery",
           targetAudience: "Neighborhood families",
@@ -244,7 +244,7 @@ describe("Briefs + generation (e2e)", () => {
     expect(ledgerEntry.status).toBe("SETTLED");
   });
 
-  it("rejects a WEBSITE brief missing required context fields with 400", async () => {
+  it("rejects a LANDING_PAGE brief missing required context fields with 400", async () => {
     const { token } = await signup();
     const project = await request(app.getHttpServer())
       .post("/projects")
@@ -258,7 +258,7 @@ describe("Briefs + generation (e2e)", () => {
       .send({
         projectId: project.body.id,
         title: "Incomplete brief",
-        type: "WEBSITE",
+        type: "LANDING_PAGE",
         context: { businessType: "Bakery" }, // missing targetAudience/painPoints/goals
       })
       .expect(400);

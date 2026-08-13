@@ -8,6 +8,8 @@ import { formatDate, formatIdr } from "@/lib/format";
 import { Badge, Button, Card, Input, Label, SectionTitle, Textarea } from "@/components/ui";
 import type { Brief, Invoice } from "@/lib/types";
 
+const TYPE_LABEL: Record<Brief["type"], string> = { LANDING_PAGE: "Landing Page", DESIGN: "Desain", VIDEO: "Video" };
+
 function prettifyKey(key: string): string {
   const spaced = key.replace(/([a-z])([A-Z])/g, "$1 $2");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
@@ -120,7 +122,7 @@ export default function BriefDetailPage({ params }: PageProps<"/briefs/[id]">) {
         </Link>
         <div className="mt-1 flex items-center gap-2.5">
           <h1 className="text-2xl font-bold text-ink">{brief.title}</h1>
-          <Badge>{brief.type === "WEBSITE" ? "Website" : "Desain"}</Badge>
+          <Badge>{TYPE_LABEL[brief.type]}</Badge>
         </div>
         <div className="mt-1 text-xs text-ink-muted">Diajukan {formatDate(brief.createdAt)}</div>
       </div>

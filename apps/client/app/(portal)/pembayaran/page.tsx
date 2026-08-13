@@ -19,14 +19,14 @@ export default function PembayaranPage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="font-display text-2xl font-semibold text-ink">Pembayaran</h1>
-        <p className="mt-1 text-sm text-ink-muted">Status pembayaran dan kirim bukti transfer untuk setiap proyek.</p>
+        <p className="mt-1 text-sm text-ink-muted">Status pembayaran dan kirim bukti transfer untuk setiap brief.</p>
       </div>
 
       {projects === null ? (
         <p className="text-sm text-ink-muted">Memuat…</p>
       ) : projects.length === 0 ? (
         <Card>
-          <p className="text-sm text-ink-muted">Belum ada proyek yang perlu dibayar.</p>
+          <p className="text-sm text-ink-muted">Belum ada brief yang perlu dibayar.</p>
         </Card>
       ) : (
         <div className="flex flex-col gap-4">
@@ -46,7 +46,7 @@ export default function PembayaranPage() {
                   {p.name}
                 </SectionTitle>
                 {p.totalPriceIdr === null ? (
-                  <p className="text-sm text-ink-muted">Harga proyek belum ditentukan. Menunggu invoice dari Kravio.</p>
+                  <p className="text-sm text-ink-muted">Harga belum ditentukan. Menunggu invoice dari Kravio.</p>
                 ) : (
                   <>
                     <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">

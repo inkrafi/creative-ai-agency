@@ -36,20 +36,44 @@ export class BriefsService {
    * real multi-statement transaction, unlike prisma.client which wraps each
    * call in its own). Matches the design doc's data shape: Project -> Brief
    * -> Task -> Asset(versions).
+   *
+   * dto.projectId is optional now: a client submitting their own brief
+   * doesn't pick (or think about) an existing project at all -- one is
+   * auto-created here, named after the brief's own title, so "Proyek"
+   * never has to exist as a concept the client interacts with. Staff
+   * creating a brief against an existing project (the agency dashboard's
+   * flow) must still supply projectId explicitly -- auto-creating one for
+   * staff would silently orphan it from whatever project they actually
+   * meant to attach it to.
    */
   async create(user: AuthenticatedUser, dto: CreateBriefDto) {
-    // A client can only ever file a brief against their own project --
-    // otherwise nothing stops CLIENT_APPROVER A from writing a brief onto
-    // CLIENT_APPROVER B's project inside the same Kravio org.
-    await assertClientOwnsProject(this.prisma, dto.projectId, user);
+    const isClient = user.role === Role.CLIENT_APPROVER || user.role === Role.CLIENT_VIEWER;
+
+    if (dto.projectId) {
+      // A client can only ever file a brief against their own project --
+      // otherwise nothing stops CLIENT_APPROVER A from writing a brief onto
+      // CLIENT_APPROVER B's project inside the same Kravio org.
+      await assertClientOwnsProject(this.prisma, dto.projectId, user);
+    } else if (!isClient) {
+      throw new BadRequestException("projectId is required.");
+    }
+
     validateBriefContext(dto.type, dto.context);
     const instructions = formatBriefPrompt(dto.type, dto.context);
 
     return this.prisma.runAsTenant(user.tenantId, async (tx) => {
+      let projectId = dto.projectId;
+      if (!projectId) {
+        const project = await tx.project.create({
+          data: { organizationId: user.tenantId, name: dto.title, clientOwnerId: user.userId },
+        });
+        projectId = project.id;
+      }
+
       const brief = await tx.brief.create({
         data: {
           organizationId: user.tenantId,
-          projectId: dto.projectId,
+          projectId,
           title: dto.title,
           type: dto.type,
           // dto.context is already validated JSON-object shape (@IsObject()
@@ -64,7 +88,7 @@ export class BriefsService {
       const task = await tx.task.create({
         data: {
           organizationId: user.tenantId,
-          projectId: dto.projectId,
+          projectId,
           briefId: brief.id,
           title: dto.title,
           createdById: user.userId,
