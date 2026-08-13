@@ -49,6 +49,7 @@ export interface Invoice {
   briefId: string | null;
   amountIdr: number;
   minDpPercent: number | null;
+  note: string | null;
   createdById: string;
   createdAt: string;
   emailSentAt: string | null;
@@ -63,6 +64,7 @@ export interface Project {
   totalPriceIdr: number | null;
   minDpPercent: number | null;
   targetCompletionDate: string | null;
+  extraRevisionPriceIdr: number | null;
   clientOwnerId: string | null;
   totalPaidIdr: number;
   paymentStatus: PaymentStatus;

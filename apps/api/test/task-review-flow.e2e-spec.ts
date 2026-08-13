@@ -219,6 +219,77 @@ describe("Task review flow (e2e)", () => {
     expect(stillInReview.body.revisionsUsed).toBe(2);
   });
 
+  it("auto-bills and allows revisions beyond quota once staff opts the project in, repeatably", async () => {
+    const token = await signup();
+    const task = await createTask(token);
+
+    await request(app.getHttpServer())
+      .patch(`/projects/${task.projectId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ totalPriceIdr: 5_000_000, extraRevisionPriceIdr: 500_000 })
+      .expect(200);
+
+    for (let i = 0; i < 2; i++) {
+      await submitForReview(token, task.id).expect(201);
+      const revised = await requestRevision(token, task.id).expect(201);
+      const requestId = revised.body.revisionRequests[0].id as string;
+      await classifyRevision(token, task.id, requestId, true).expect(200);
+    }
+    await submitForReview(token, task.id).expect(201);
+
+    // Goes through instead of a 402, and the request is already classified.
+    const extra = await requestRevision(token, task.id, "One more small tweak, out of scope").expect(201);
+    expect(extra.body.status).toBe("IN_PROGRESS");
+    expect(extra.body.maxRevisions).toBe(3);
+    expect(extra.body.revisionsUsed).toBe(3);
+    const extraRequest = extra.body.revisionRequests[0];
+    expect(extraRequest).toMatchObject({ billable: true, round: 3 });
+    expect(extraRequest.classifiedAt).not.toBeNull();
+    expect(extraRequest.classificationNote).toMatch(/di luar kuota/i);
+
+    // Billed via a real Invoice, and the project's total price grew to match.
+    const invoices = await request(app.getHttpServer())
+      .get(`/projects/${task.projectId}/invoices`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    const extraInvoice = invoices.body.find((inv: { note: string | null }) => inv.note?.includes("di luar kuota"));
+    expect(extraInvoice).toMatchObject({ amountIdr: 500_000 });
+
+    const project = await request(app.getHttpServer())
+      .get(`/projects/${task.projectId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    expect(project.body.totalPriceIdr).toBe(5_500_000);
+
+    // Repeatable, not a one-shot exception: a second over-quota request
+    // also auto-bills for as long as extraRevisionPriceIdr stays set.
+    await submitForReview(token, task.id).expect(201);
+    const secondExtra = await requestRevision(token, task.id, "And one more after that").expect(201);
+    expect(secondExtra.body.maxRevisions).toBe(4);
+    expect(secondExtra.body.revisionsUsed).toBe(4);
+
+    const projectAfterSecond = await request(app.getHttpServer())
+      .get(`/projects/${task.projectId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    expect(projectAfterSecond.body.totalPriceIdr).toBe(6_000_000);
+  });
+
+  it("still hard-blocks over-quota revisions when extraRevisionPriceIdr isn't set", async () => {
+    const token = await signup();
+    const task = await createTask(token);
+
+    for (let i = 0; i < 2; i++) {
+      await submitForReview(token, task.id).expect(201);
+      const revised = await requestRevision(token, task.id).expect(201);
+      const requestId = revised.body.revisionRequests[0].id as string;
+      await classifyRevision(token, task.id, requestId, true).expect(200);
+    }
+    await submitForReview(token, task.id).expect(201);
+
+    await requestRevision(token, task.id).expect(402);
+  });
+
   it("rejects request-revision and approve on a task that isn't in review", async () => {
     const token = await signup();
     const task = await createTask(token); // status: TODO

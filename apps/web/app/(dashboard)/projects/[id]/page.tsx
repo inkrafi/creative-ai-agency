@@ -38,6 +38,10 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   const [deadlineSubmitting, setDeadlineSubmitting] = useState(false);
   const [deadlineError, setDeadlineError] = useState<string | null>(null);
 
+  const [extraRevisionInput, setExtraRevisionInput] = useState("");
+  const [extraRevisionSubmitting, setExtraRevisionSubmitting] = useState(false);
+  const [extraRevisionError, setExtraRevisionError] = useState<string | null>(null);
+
   const [paymentType, setPaymentType] = useState<PaymentType>("DP");
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
@@ -61,6 +65,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
         setProject(p);
         setPriceInput(p.totalPriceIdr !== null ? String(p.totalPriceIdr) : "");
         setDeadlineInput(p.targetCompletionDate ? p.targetCompletionDate.slice(0, 10) : "");
+        setExtraRevisionInput(p.extraRevisionPriceIdr !== null ? String(p.extraRevisionPriceIdr) : "");
       })
       .catch((err) => {
         if (err instanceof ApiError && err.status === 404) setNotFound(true);
@@ -107,6 +112,23 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
       setDeadlineError(err instanceof ApiError ? err.message : "Gagal menyimpan target selesai.");
     } finally {
       setDeadlineSubmitting(false);
+    }
+  }
+
+  async function handleSetExtraRevisionPrice(e: React.FormEvent) {
+    e.preventDefault();
+    setExtraRevisionSubmitting(true);
+    setExtraRevisionError(null);
+    try {
+      await api(`/projects/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ extraRevisionPriceIdr: Number(extraRevisionInput) }),
+      });
+      load();
+    } catch (err) {
+      setExtraRevisionError(err instanceof ApiError ? err.message : "Gagal menyimpan harga revisi tambahan.");
+    } finally {
+      setExtraRevisionSubmitting(false);
     }
   }
 
@@ -283,6 +305,32 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
             </form>
           )}
           {deadlineError && <p className="mt-2 text-sm text-danger">{deadlineError}</p>}
+
+          {canManage && (
+            <form
+              onSubmit={handleSetExtraRevisionPrice}
+              className="mt-4 flex items-end gap-2 border-t border-border pt-4"
+            >
+              <div className="flex-1">
+                <Label>Harga revisi tambahan di luar kuota (opsional)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={extraRevisionInput}
+                  onChange={(e) => setExtraRevisionInput(e.target.value)}
+                  placeholder="500000"
+                />
+                <p className="mt-1 text-xs text-ink-muted">
+                  Kalau diisi, permintaan revisi setelah kuota habis otomatis ditagih sejumlah ini (bukan diblokir)
+                  dan langsung tercatat sebagai invoice baru.
+                </p>
+              </div>
+              <Button type="submit" disabled={extraRevisionSubmitting}>
+                {extraRevisionSubmitting ? "…" : "Simpan"}
+              </Button>
+            </form>
+          )}
+          {extraRevisionError && <p className="mt-2 text-sm text-danger">{extraRevisionError}</p>}
         </Card>
 
         {canManage && (
@@ -468,6 +516,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
                     {formatDate(inv.createdAt)}
                     {inv.minDpPercent !== null ? ` — DP minimal ${inv.minDpPercent}%` : ""}
                   </div>
+                  {inv.note && <div className="mt-0.5 text-xs text-ink-muted">{inv.note}</div>}
                 </div>
                 <Badge tone={inv.emailSentAt ? "success" : "neutral"}>
                   {inv.emailSentAt ? "Email terkirim" : "Email belum terkirim"}

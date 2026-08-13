@@ -49,6 +49,7 @@ export interface Invoice {
   briefId: string | null;
   amountIdr: number;
   minDpPercent: number | null;
+  note: string | null;
   createdById: string;
   createdAt: string;
   emailSentAt: string | null;

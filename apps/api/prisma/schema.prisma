@@ -100,26 +100,34 @@ model User {
 }
 
 model Project {
-  id                   String        @id @default(uuid()) @db.Uuid
-  organizationId       String        @map("organization_id") @db.Uuid
-  name                 String
-  description          String?
-  status               ProjectStatus @default(ACTIVE)
+  id                    String        @id @default(uuid()) @db.Uuid
+  organizationId        String        @map("organization_id") @db.Uuid
+  name                  String
+  description           String?
+  status                ProjectStatus @default(ACTIVE)
   // Whole Rupiah, no fractional subunit in real use -- a plain Int, not the
   // "micros" pattern GenerationJob/CreditLedgerEntry use (that exists for
   // fractional per-token USD pricing, a different problem). Nullable: the
   // price is usually agreed after the initial brief discussion, not known
   // at project creation.
-  totalPriceIdr        Int?          @map("total_price_idr")
+  totalPriceIdr         Int?          @map("total_price_idr")
   // Informational only -- shown as plain text on the invoice ("minimum DP:
   // X%"), never enforced against what a client actually submits. Set
   // whenever an invoice is sent; nullable because a project can go a long
   // time before it has a price at all.
-  minDpPercent         Int?          @map("min_dp_percent")
+  minDpPercent          Int?          @map("min_dp_percent")
   // Set by staff alongside pricing/invoicing, shown to the client as an
   // expectation-setter on their project view -- not a contractual SLA, and
   // nothing in the system enforces or alerts against it being missed.
-  targetCompletionDate DateTime?     @map("target_completion_date")
+  targetCompletionDate  DateTime?     @map("target_completion_date")
+  // Opt-in price staff charges for each revision beyond a task's included
+  // quota (see TasksService.requestRevision) -- once set, every over-quota
+  // request on this project auto-bills at this rate instead of blocking,
+  // for as long as the field stays set. Null (the default) means an
+  // over-quota request stays hard-blocked with a 402, same as before this
+  // field existed -- staff has to deliberately turn this on per project,
+  // it's never a default policy.
+  extraRevisionPriceIdr Int?          @map("extra_revision_price_idr")
   // Which CLIENT_APPROVER this project belongs to -- the isolation boundary
   // *between different clients of the same agency*, layered on top of (not
   // instead of) RLS's organization-level tenant isolation. Null for
@@ -128,9 +136,9 @@ model Project {
   // are filtered to clientOwnerId = themselves (see
   // assertClientOwnsProject() in common/client-project-access.ts); staff
   // are never restricted by this field.
-  clientOwnerId        String?       @map("client_owner_id") @db.Uuid
-  createdAt            DateTime      @default(now()) @map("created_at")
-  updatedAt            DateTime      @updatedAt @map("updated_at")
+  clientOwnerId         String?       @map("client_owner_id") @db.Uuid
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   tasks        Task[]
@@ -373,6 +381,11 @@ model Invoice {
   briefId        String?   @map("brief_id") @db.Uuid
   amountIdr      Int       @map("amount_idr")
   minDpPercent   Int?      @map("min_dp_percent")
+  // Free-text context for an invoice that isn't a normal brief-priced
+  // total -- currently only set by the auto-generated over-quota-revision
+  // invoice (see TasksService.requestRevision); null for every invoice
+  // sent the regular way through ProjectsService.sendInvoice().
+  note           String?
   createdById    String    @map("created_by_id") @db.Uuid
   createdAt      DateTime  @default(now()) @map("created_at")
   // Null if the email send failed or Resend isn't configured -- the invoice

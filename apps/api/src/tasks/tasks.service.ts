@@ -128,15 +128,22 @@ export class TasksService {
    * a "you've used what's included" limit, the same shape as insufficient
    * credit, not a malformed request.
    *
+   * Unless staff has opted the project into `extraRevisionPriceIdr`: every
+   * over-quota request then goes through instead of blocking, immediately
+   * billed (there's no ambiguity to triage -- being over quota *is* the
+   * reason it's billable) via an auto-generated Invoice, and both
+   * `maxRevisions`/`revisionsUsed` grow by one together so the counter
+   * reads as "used all of an expanded quota" rather than something that
+   * looks like a bug (4/3) -- repeatable for as long as the field stays
+   * set, not a one-shot exception. This is the one path where a
+   * RevisionRequest is created already classified -- every other request
+   * still goes through classifyRevisionRequest() as a separate,
+   * asynchronous decision, same as before.
+   *
    * Logs a RevisionRequest (round = the running count of requests so far,
    * billable or not) alongside the status flip -- see its schema comment
-   * for why `note` is required. Does NOT increment `revisionsUsed` itself
-   * anymore: staff hasn't looked at *why* the client is asking yet, and
-   * "the client asked" isn't the same thing as "this counts against their
-   * included revisions" -- see classifyRevisionRequest(). The task still
-   * flips to IN_PROGRESS immediately so staff can start the work right
-   * away; classification is a separate, asynchronous bookkeeping decision
-   * that doesn't need to block anyone.
+   * for why `note` is required. The task flips to IN_PROGRESS immediately
+   * either way so staff can start the work right away.
    */
   async requestRevision(id: string, user: AuthenticatedUser, dto: RequestRevisionDto) {
     const task = await this.findOne(id);
@@ -144,14 +151,25 @@ export class TasksService {
     if (task.status !== TaskStatus.IN_REVIEW) {
       throw new BadRequestException("Only a task currently in review can have a revision requested.");
     }
-    if (task.revisionsUsed >= task.maxRevisions) {
-      throw new HttpException(
-        `Revision limit reached (${task.revisionsUsed}/${task.maxRevisions} used). Additional revisions need a new arrangement.`,
-        HttpStatus.PAYMENT_REQUIRED,
-      );
+
+    const overQuota = task.revisionsUsed >= task.maxRevisions;
+    let project: { totalPriceIdr: number | null; extraRevisionPriceIdr: number | null } | null = null;
+
+    if (overQuota) {
+      project = await this.prisma.client.project.findUniqueOrThrow({
+        where: { id: task.projectId },
+        select: { totalPriceIdr: true, extraRevisionPriceIdr: true },
+      });
+      if (project.extraRevisionPriceIdr === null) {
+        throw new HttpException(
+          `Revision limit reached (${task.revisionsUsed}/${task.maxRevisions} used). Additional revisions need a new arrangement.`,
+          HttpStatus.PAYMENT_REQUIRED,
+        );
+      }
     }
 
     const round = task.revisionRequests.length + 1;
+    const extraPrice = project?.extraRevisionPriceIdr;
 
     return this.prisma.runAsTenant(task.organizationId, async (tx) => {
       await tx.revisionRequest.create({
@@ -161,11 +179,40 @@ export class TasksService {
           note: dto.note,
           round,
           createdById: user.userId,
+          ...(overQuota
+            ? {
+                billable: true,
+                classifiedAt: new Date(),
+                classificationNote: `Revisi tambahan di luar kuota -- otomatis ditagih Rp ${extraPrice!.toLocaleString("id-ID")}.`,
+              }
+            : {}),
         },
       });
+
+      if (overQuota) {
+        await tx.invoice.create({
+          data: {
+            organizationId: task.organizationId,
+            projectId: task.projectId,
+            amountIdr: extraPrice!,
+            note: `Revisi tambahan di luar kuota untuk "${task.title}"`,
+            createdById: user.userId,
+          },
+        });
+        await tx.project.update({
+          where: { id: task.projectId },
+          data: {
+            totalPriceIdr: project!.totalPriceIdr === null ? extraPrice! : { increment: extraPrice! },
+          },
+        });
+      }
+
       return tx.task.update({
         where: { id },
-        data: { status: TaskStatus.IN_PROGRESS },
+        data: {
+          status: TaskStatus.IN_PROGRESS,
+          ...(overQuota ? { maxRevisions: { increment: 1 }, revisionsUsed: { increment: 1 } } : {}),
+        },
         include: {
           deliverables: { orderBy: { version: "desc" } },
           revisionRequests: { orderBy: { round: "desc" } },

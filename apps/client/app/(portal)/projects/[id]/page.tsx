@@ -17,7 +17,7 @@ import {
 } from "@/lib/status";
 import { Badge, Button, Card, Input, Label, Select, SectionTitle, Textarea } from "@/components/ui";
 import { ExternalLinkIcon, PlusIcon } from "@/components/icons";
-import type { Brief, PaymentType, Project, RevisionRequestRecord, Task } from "@/lib/types";
+import type { Brief, Invoice, PaymentType, Project, RevisionRequestRecord, Task } from "@/lib/types";
 
 function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -140,6 +140,7 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [briefs, setBriefs] = useState<Brief[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [notFound, setNotFound] = useState(false);
 
   const [paymentType, setPaymentType] = useState<PaymentType>("DP");
@@ -160,6 +161,7 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
       });
     void api<Task[]>(`/tasks?projectId=${id}`).then(setTasks);
     void api<Brief[]>(`/briefs?projectId=${id}`).then(setBriefs);
+    void api<Invoice[]>(`/projects/${id}/invoices`).then(setInvoices);
   }
 
   useEffect(load, [id]);
@@ -353,6 +355,26 @@ export default function ProjectHubPage({ params }: PageProps<"/projects/[id]">) 
                   <Badge tone={PAYMENT_VERIFICATION_TONE[pay.verificationStatus]}>
                     {PAYMENT_VERIFICATION_LABEL[pay.verificationStatus]}
                   </Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {invoices.length > 0 && (
+        <Card>
+          <SectionTitle>Riwayat invoice</SectionTitle>
+          <div className="flex flex-col divide-y divide-border">
+            {invoices.map((inv) => (
+              <div key={inv.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-ink">{formatIdr(inv.amountIdr)}</div>
+                  <div className="text-xs text-ink-muted">
+                    {formatDate(inv.createdAt)}
+                    {inv.minDpPercent !== null ? ` — DP minimal ${inv.minDpPercent}%` : ""}
+                  </div>
+                  {inv.note && <div className="mt-0.5 text-xs text-ink-muted">{inv.note}</div>}
                 </div>
               </div>
             ))}

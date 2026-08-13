@@ -28,4 +28,11 @@ export class UpdateProjectDto extends PartialType(CreateProjectDto) {
   @IsOptional()
   @IsISO8601()
   targetCompletionDate?: string;
+
+  // Opt-in per-project price charged for each revision beyond a task's
+  // included quota -- see Project.extraRevisionPriceIdr's schema comment.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  extraRevisionPriceIdr?: number;
 }
