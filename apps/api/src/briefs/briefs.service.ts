@@ -112,9 +112,19 @@ export class BriefsService {
       },
       orderBy: { createdAt: "desc" },
       // Only needed for the unfiltered (cross-project) call -- the client
-      // portal's Daftar Brief page needs to show which project each brief
-      // belongs to since there's no projectId in scope on that view.
-      include: { project: { select: { name: true } } },
+      // portal's Daftar Brief / Beranda views need to show which project
+      // each brief belongs to (no projectId in scope on those pages) and
+      // enough payment data to compute a "Sedang dikerjakan" status
+      // without an extra round-trip per brief.
+      include: {
+        project: {
+          select: {
+            name: true,
+            totalPriceIdr: true,
+            payments: { select: { amountIdr: true, verificationStatus: true } },
+          },
+        },
+      },
     });
   }
 

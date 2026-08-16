@@ -4,12 +4,28 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { briefStatus } from "@/lib/status";
+import { briefListStatus, derivePaymentStatus, PAYMENT_STATUS_LABEL, PAYMENT_STATUS_TONE } from "@/lib/status";
 import { Badge, Button, Card } from "@/components/ui";
-import { ChevronRightIcon, PlusIcon } from "@/components/icons";
+import { DataTable, type DataTableColumn, type DataTableFilter } from "@/components/data-table";
+import { ClockIcon, PlusIcon, WalletIcon } from "@/components/icons";
 import type { Brief, BriefType } from "@/lib/types";
 
 const TYPE_LABEL: Record<BriefType, string> = { LANDING_PAGE: "Landing Page", DESIGN: "Desain", VIDEO: "Video" };
+
+// Categorical hues (see components/ui.tsx's badgeTones comment) so Jenis
+// never gets confused for a status pill even when scanning quickly.
+const TYPE_TONE: Record<BriefType, "brand" | "accent" | "navy"> = {
+  LANDING_PAGE: "brand",
+  DESIGN: "accent",
+  VIDEO: "navy",
+};
+
+const PROGRESS_FILTER_OPTIONS = [
+  "Menunggu harga dari tim Kravio",
+  "Menunggu pembayaran",
+  "Sedang dikerjakan",
+  "Selesai",
+];
 
 export default function BriefsListPage() {
   const [briefs, setBriefs] = useState<Brief[] | null>(null);
@@ -17,6 +33,59 @@ export default function BriefsListPage() {
   useEffect(() => {
     void api<Brief[]>("/briefs").then(setBriefs);
   }, []);
+
+  const columns: DataTableColumn<Brief>[] = [
+    {
+      key: "title",
+      header: "Brief",
+      render: (b) => <span className="font-medium text-ink">{b.title}</span>,
+    },
+    {
+      key: "date",
+      header: "Tanggal",
+      render: (b) => <span className="text-ink-muted">{formatDate(b.createdAt)}</span>,
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (b) => {
+        const progress = briefListStatus(b);
+        const paymentStatus = derivePaymentStatus(b.project);
+        return (
+          <div className="flex flex-col gap-1.5">
+            <span className="inline-flex items-center gap-1">
+              <ClockIcon width={12} height={12} className="text-ink-muted" />
+              <Badge tone={progress.tone}>{progress.label}</Badge>
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <WalletIcon width={12} height={12} className="text-ink-muted" />
+              <Badge tone={PAYMENT_STATUS_TONE[paymentStatus]}>{PAYMENT_STATUS_LABEL[paymentStatus]}</Badge>
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      key: "type",
+      header: "Jenis",
+      render: (b) => <Badge tone={TYPE_TONE[b.type]}>{TYPE_LABEL[b.type]}</Badge>,
+    },
+  ];
+
+  const filters: DataTableFilter<Brief>[] = [
+    {
+      key: "type",
+      label: "Jenis",
+      options: (Object.keys(TYPE_LABEL) as BriefType[]).map((t) => ({ value: t, label: TYPE_LABEL[t] })),
+      getValue: (b) => b.type,
+    },
+    {
+      key: "progress",
+      label: "Status",
+      options: PROGRESS_FILTER_OPTIONS.map((label) => ({ value: label, label })),
+      getValue: (b) => briefListStatus(b).label,
+    },
+  ];
 
   return (
     <div className="flex flex-col gap-6">
@@ -46,32 +115,16 @@ export default function BriefsListPage() {
           </p>
         </Card>
       ) : (
-        <Card>
-          <div className="flex flex-col divide-y divide-border">
-            {briefs.map((b) => {
-              const status = briefStatus(b.needsClarification);
-              return (
-                <Link
-                  key={b.id}
-                  href={`/briefs/${b.id}`}
-                  className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0 hover:bg-surface-2"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <div className="truncate text-sm font-medium text-ink">{b.title}</div>
-                      <Badge>{TYPE_LABEL[b.type]}</Badge>
-                    </div>
-                    <div className="mt-0.5 text-xs text-ink-muted">{formatDate(b.createdAt)}</div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Badge tone={status.tone}>{status.label}</Badge>
-                    <ChevronRightIcon width={16} height={16} className="text-ink-muted" />
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </Card>
+        <DataTable
+          data={briefs}
+          columns={columns}
+          rowKey={(b) => b.id}
+          searchPlaceholder="Cari judul brief…"
+          searchValue={(b) => b.title}
+          filters={filters}
+          getRowHref={(b) => `/briefs/${b.id}`}
+          emptyMessage="Tidak ada brief yang cocok."
+        />
       )}
     </div>
   );

@@ -192,3 +192,28 @@ export function LockIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function SearchIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="9" cy="9" r="6" />
+      <path d="M17 17l-4.3-4.3" />
+    </svg>
+  );
+}
+
+export function FilterIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M3 4.5h14l-5.5 6.5v5l-3 1.5v-6.5L3 4.5Z" />
+    </svg>
+  );
+}
+
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M5 7.5 10 12.5 15 7.5" />
+    </svg>
+  );
+}

@@ -85,8 +85,8 @@ export default function PaymentPage({ params }: PageProps<"/projects/[id]/paymen
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <div>
-        <Link href="/pembayaran" className="text-xs font-medium text-ink-muted hover:text-ink">
-          ← Pembayaran
+        <Link href="/keuangan" className="text-xs font-medium text-ink-muted hover:text-ink">
+          ← Keuangan
         </Link>
         <h1 className="mt-1 text-2xl font-bold text-ink">Bayar {project.name}</h1>
       </div>
@@ -188,8 +188,8 @@ export default function PaymentPage({ params }: PageProps<"/projects/[id]/paymen
         open={claimedOpen}
         title="Bukti pembayaran terkirim!"
         message="Tim Kravio akan memverifikasi pembayaran Anda secepatnya."
-        actionLabel="Kembali ke Pembayaran"
-        onClose={() => router.push("/pembayaran")}
+        actionLabel="Kembali ke Keuangan"
+        onClose={() => router.push("/keuangan")}
       />
     </div>
   );

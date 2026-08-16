@@ -23,6 +23,12 @@ const badgeTones = {
   success: "border-transparent bg-success-bg text-success",
   warning: "border-transparent bg-warning-bg text-warning",
   danger: "border-transparent bg-danger-bg text-danger",
+  // Categorical (non-semantic) hues -- used to color-code a type/kind
+  // rather than a state, so they read as visually distinct from the
+  // warning/success/danger status tones above (e.g. Jenis vs Status
+  // columns in a table).
+  accent: "border-transparent bg-accent/25 text-accent-ink",
+  navy: "border-transparent bg-navy/10 text-navy",
 } as const;
 
 export function Badge({ tone = "neutral", children }: { tone?: keyof typeof badgeTones; children: ReactNode }) {

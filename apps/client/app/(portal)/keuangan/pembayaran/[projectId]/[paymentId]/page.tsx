@@ -8,7 +8,7 @@ import { PAYMENT_TYPE_LABEL, PAYMENT_VERIFICATION_LABEL, PAYMENT_VERIFICATION_TO
 import { Badge, Card, SectionTitle } from "@/components/ui";
 import type { Payment, Project } from "@/lib/types";
 
-export default function PaymentDetailPage({ params }: PageProps<"/riwayat/pembayaran/[projectId]/[paymentId]">) {
+export default function PaymentDetailPage({ params }: PageProps<"/keuangan/pembayaran/[projectId]/[paymentId]">) {
   const { projectId, paymentId } = use(params);
 
   const [project, setProject] = useState<Project | null>(null);
@@ -31,8 +31,8 @@ export default function PaymentDetailPage({ params }: PageProps<"/riwayat/pembay
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
       <div>
-        <Link href="/riwayat" className="text-xs font-medium text-ink-muted hover:text-ink">
-          ← Riwayat
+        <Link href="/keuangan" className="text-xs font-medium text-ink-muted hover:text-ink">
+          ← Keuangan
         </Link>
         <h1 className="mt-1 text-2xl font-bold text-ink">Detail Pembayaran</h1>
         <p className="mt-1 text-sm text-ink-muted">{project.name}</p>

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDate, formatIdr } from "@/lib/format";
-import { Badge, Button, Card, Input, Label, SectionTitle, Textarea } from "@/components/ui";
+import { Badge, Button, Card, Input, Label, SectionTitle } from "@/components/ui";
 import type { Brief, Invoice } from "@/lib/types";
 
 const TYPE_LABEL: Record<Brief["type"], string> = { LANDING_PAGE: "Landing Page", DESIGN: "Desain", VIDEO: "Video" };
@@ -27,11 +27,6 @@ export default function BriefDetailPage({ params }: PageProps<"/briefs/[id]">) {
   const [suggesting, setSuggesting] = useState(false);
   const [suggestError, setSuggestError] = useState<string | null>(null);
 
-  const [showClarifyForm, setShowClarifyForm] = useState(false);
-  const [clarifyNote, setClarifyNote] = useState("");
-  const [clarifySubmitting, setClarifySubmitting] = useState(false);
-  const [clarifyError, setClarifyError] = useState<string | null>(null);
-
   const [amountIdr, setAmountIdr] = useState("");
   const [minDpPercent, setMinDpPercent] = useState("30");
   const [sending, setSending] = useState(false);
@@ -51,25 +46,6 @@ export default function BriefDetailPage({ params }: PageProps<"/briefs/[id]">) {
   }
 
   useEffect(load, [id]);
-
-  async function handleRequestClarification(e: React.FormEvent) {
-    e.preventDefault();
-    setClarifySubmitting(true);
-    setClarifyError(null);
-    try {
-      await api(`/briefs/${id}/request-clarification`, {
-        method: "PATCH",
-        body: JSON.stringify({ note: clarifyNote }),
-      });
-      setClarifyNote("");
-      setShowClarifyForm(false);
-      load();
-    } catch (err) {
-      setClarifyError(err instanceof ApiError ? err.message : "Gagal mengirim permintaan klarifikasi.");
-    } finally {
-      setClarifySubmitting(false);
-    }
-  }
 
   async function handleSuggestPrice() {
     setSuggesting(true);
@@ -126,47 +102,6 @@ export default function BriefDetailPage({ params }: PageProps<"/briefs/[id]">) {
         </div>
         <div className="mt-1 text-xs text-ink-muted">Diajukan {formatDate(brief.createdAt)}</div>
       </div>
-
-      {brief.needsClarification ? (
-        <Card className="border-warning/40 bg-warning-bg/40">
-          <SectionTitle>Menunggu klarifikasi dari klien</SectionTitle>
-          <p className="text-sm text-ink">{brief.clarificationNote}</p>
-        </Card>
-      ) : (
-        brief.clarificationNote && (
-          <Card>
-            <SectionTitle>Klarifikasi terjawab</SectionTitle>
-            <p className="text-sm text-ink-muted">Pertanyaan sebelumnya: {brief.clarificationNote}</p>
-            {brief.clarificationRespondedAt && (
-              <p className="mt-1 text-xs text-ink-muted">Dijawab {formatDate(brief.clarificationRespondedAt)}</p>
-            )}
-          </Card>
-        )
-      )}
-
-      {canManage && !brief.needsClarification && (
-        <Card>
-          {!showClarifyForm ? (
-            <Button type="button" variant="ghost" onClick={() => setShowClarifyForm(true)}>
-              Minta Klarifikasi ke Klien
-            </Button>
-          ) : (
-            <form onSubmit={handleRequestClarification} className="flex flex-col gap-3">
-              <Label>Apa yang perlu diperjelas klien?</Label>
-              <Textarea value={clarifyNote} onChange={(e) => setClarifyNote(e.target.value)} required rows={3} autoFocus />
-              {clarifyError && <p className="text-sm text-danger">{clarifyError}</p>}
-              <div className="flex gap-2">
-                <Button type="submit" disabled={clarifySubmitting || clarifyNote.trim() === ""}>
-                  {clarifySubmitting ? "Mengirim…" : "Kirim ke Klien"}
-                </Button>
-                <Button type="button" variant="ghost" onClick={() => setShowClarifyForm(false)}>
-                  Batal
-                </Button>
-              </div>
-            </form>
-          )}
-        </Card>
-      )}
 
       <Card>
         <SectionTitle>Detail brief</SectionTitle>

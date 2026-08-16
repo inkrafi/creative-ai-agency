@@ -4,13 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { initials } from "@/lib/format";
-import { DocumentIcon, GridIcon, HistoryIcon, LogOutIcon, WalletIcon } from "./icons";
+import { DocumentIcon, GridIcon, LogOutIcon, WalletIcon } from "./icons";
 
 const NAV_ITEMS = [
   { href: "/home", label: "Beranda", icon: GridIcon },
   { href: "/briefs", label: "Brief", icon: DocumentIcon },
-  { href: "/pembayaran", label: "Pembayaran", icon: WalletIcon },
-  { href: "/riwayat", label: "Riwayat", icon: HistoryIcon },
+  { href: "/keuangan", label: "Keuangan", icon: WalletIcon },
 ];
 
 function isActive(pathname: string, href: string) {

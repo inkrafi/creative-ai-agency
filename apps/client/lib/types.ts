@@ -101,7 +101,11 @@ export interface Brief {
   updatedAt: string;
   // Only present on the unfiltered (cross-project) GET /briefs response --
   // see BriefsService.findAll()'s comment.
-  project?: { name: string };
+  project?: {
+    name: string;
+    totalPriceIdr: number | null;
+    payments: { amountIdr: number; verificationStatus: PaymentVerificationStatus }[];
+  };
 }
 
 export interface Deliverable {

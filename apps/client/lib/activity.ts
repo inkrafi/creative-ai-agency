@@ -37,20 +37,6 @@ export async function buildActivity(projects: Project[], limit = 12): Promise<Ac
       // now that there's no standalone project page to link to.
       const briefHref = briefs[0] ? `/briefs/${briefs[0].id}` : "/briefs";
 
-      for (const b of briefs) {
-        if (b.needsClarification) {
-          items.push({
-            id: `brief-clarification-${b.id}`,
-            timestamp: b.updatedAt,
-            projectId: p.id,
-            projectName: p.name,
-            message: `Tim Kravio butuh info tambahan soal "${b.title}"`,
-            tone: "warning",
-            href: `/briefs/${b.id}`,
-          });
-        }
-      }
-
       for (const inv of invoices) {
         items.push({
           id: `invoice-${inv.id}`,
@@ -59,7 +45,7 @@ export async function buildActivity(projects: Project[], limit = 12): Promise<Ac
           projectName: p.name,
           message: `Invoice terkirim — ${formatIdr(inv.amountIdr)}`,
           tone: "neutral",
-          href: `/riwayat/invoice/${p.id}/${inv.id}`,
+          href: `/keuangan/invoice/${p.id}/${inv.id}`,
         });
       }
 
@@ -72,7 +58,7 @@ export async function buildActivity(projects: Project[], limit = 12): Promise<Ac
             projectName: p.name,
             message: `Pembayaran ${formatIdr(pay.amountIdr)} terverifikasi`,
             tone: "success",
-            href: `/riwayat/pembayaran/${p.id}/${pay.id}`,
+            href: `/keuangan/pembayaran/${p.id}/${pay.id}`,
           });
         } else if (pay.verificationStatus === "REJECTED" && pay.verifiedAt) {
           items.push({
@@ -82,7 +68,7 @@ export async function buildActivity(projects: Project[], limit = 12): Promise<Ac
             projectName: p.name,
             message: `Pembayaran ${formatIdr(pay.amountIdr)} ditolak${pay.verificationNote ? `: ${pay.verificationNote}` : ""}`,
             tone: "danger",
-            href: `/riwayat/pembayaran/${p.id}/${pay.id}`,
+            href: `/keuangan/pembayaran/${p.id}/${pay.id}`,
           });
         }
       }

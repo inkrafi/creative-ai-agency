@@ -8,7 +8,7 @@ import { formatDate, formatIdr } from "@/lib/format";
 import { Button, Card } from "@/components/ui";
 import type { Invoice, Project } from "@/lib/types";
 
-export default function InvoiceDetailPage({ params }: PageProps<"/riwayat/invoice/[projectId]/[invoiceId]">) {
+export default function InvoiceDetailPage({ params }: PageProps<"/keuangan/invoice/[projectId]/[invoiceId]">) {
   const { projectId, invoiceId } = use(params);
   const { user, organization } = useAuth();
 
@@ -34,8 +34,8 @@ export default function InvoiceDetailPage({ params }: PageProps<"/riwayat/invoic
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <div className="flex items-center justify-between print:hidden">
-        <Link href="/riwayat" className="text-xs font-medium text-ink-muted hover:text-ink">
-          ← Riwayat
+        <Link href="/keuangan" className="text-xs font-medium text-ink-muted hover:text-ink">
+          ← Keuangan
         </Link>
         <Button type="button" onClick={() => window.print()}>
           Cetak / Simpan PDF
